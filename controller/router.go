@@ -2,6 +2,7 @@ package controller
 
 import (
 	"billing3/controller/middlewares"
+	"billing3/service/extension"
 	"billing3/service/gateways"
 	"github.com/go-chi/chi/v5"
 	"log/slog"
@@ -117,6 +118,26 @@ func Route(r *chi.Mux) {
 
 		_ = chi.Walk(router, func(method string, route string, handler http.Handler, middlewares ...func(http.Handler) http.Handler) error {
 			slog.Info("gateway route", "method", method, "route", prefix+route)
+			return nil
+		})
+	}
+
+	for name, ext := range extension.Extensions {
+		router := chi.NewRouter()
+
+		err := ext.Route(router)
+		if err != nil {
+			slog.Error("register extension routes", "extension", name, "err", err)
+			panic(err)
+		}
+
+		prefix := "/extension/" + strings.ToLower(name)
+		r.Mount(prefix, router)
+
+		slog.Info("register extension routes", "pattern", prefix)
+
+		_ = chi.Walk(router, func(method string, route string, handler http.Handler, middlewares ...func(http.Handler) http.Handler) error {
+			slog.Info("extension route", "method", method, "route", prefix+route)
 			return nil
 		})
 	}
