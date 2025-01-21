@@ -38,7 +38,12 @@ func register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	service.SendVerificationEmail(email)
+	err = service.SendVerificationEmail(r.Context(), email)
+	if err != nil {
+		slog.Error("register send verification email", "err", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
 
 	writeResp(w, http.StatusOK, D{})
 }

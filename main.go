@@ -4,9 +4,9 @@ import (
 	"billing3/controller"
 	"billing3/database"
 	"billing3/service"
+	"billing3/service/email"
 	"billing3/service/extension"
 	"billing3/service/gateways"
-	"billing3/utils/email"
 	"context"
 	"errors"
 	"log/slog"
@@ -51,11 +51,10 @@ func main() {
 	})))
 
 	// database
-	err = database.Init()
-	if err != nil {
-		slog.Error("init database", "err", err)
-		panic(err)
-	}
+	database.Init()
+
+	// redis
+	database.InitRedis()
 
 	// gateway
 	err = gateways.InitDatabase()

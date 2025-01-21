@@ -198,7 +198,7 @@ DELETE FROM services WHERE id = $1;
 UPDATE services SET expires_at = $2 WHERE id = $1;
 
 -- name: CountServicesByServer :one
-SELECT COUNT(*) FROM services WHERE (status = 'PENDING' OR status = 'ACTIVE' OR status = 'SUSPENDED' OR status = 'UNPAID') AND (settings::jsonb ? 'server' AND (settings->>'server')::integer = @server::integer) ORDER BY id ASC;
+SELECT COUNT(id) FROM services WHERE (status = 'PENDING' OR status = 'ACTIVE' OR status = 'SUSPENDED' OR status = 'UNPAID') AND (settings::jsonb ? 'server' AND (settings->>'server')::integer = @server::integer);
 
 -- GATEWAYS --
 

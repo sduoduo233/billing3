@@ -39,7 +39,7 @@ func (q *Queries) AddInvoicePayment(ctx context.Context, arg AddInvoicePaymentPa
 }
 
 const countServicesByServer = `-- name: CountServicesByServer :one
-SELECT COUNT(*) FROM services WHERE (status = 'PENDING' OR status = 'ACTIVE' OR status = 'SUSPENDED' OR status = 'UNPAID') AND (settings::jsonb ? 'server' AND (settings->>'server')::integer = $1::integer) ORDER BY id ASC
+SELECT COUNT(id) FROM services WHERE (status = 'PENDING' OR status = 'ACTIVE' OR status = 'SUSPENDED' OR status = 'UNPAID') AND (settings::jsonb ? 'server' AND (settings->>'server')::integer = $1::integer)
 `
 
 func (q *Queries) CountServicesByServer(ctx context.Context, server int32) (int64, error) {

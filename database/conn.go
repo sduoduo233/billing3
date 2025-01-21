@@ -18,12 +18,12 @@ var sqls embed.FS
 var Q *Queries
 var Conn *pgxpool.Pool
 
-func Init() error {
+func Init() {
 	ctx := context.Background()
 
 	config, err := pgxpool.ParseConfig(os.Getenv("DATABASE"))
 	if err != nil {
-		return fmt.Errorf("pgx parse config: %w", err)
+		panic(fmt.Sprintf("pgx parse config: %s", err.Error()))
 	}
 
 	config.AfterConnect = func(ctx context.Context, p *pgx.Conn) error {
@@ -33,7 +33,7 @@ func Init() error {
 
 	Conn, err = pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
-		return fmt.Errorf("pgx connect: %w", err)
+		panic(fmt.Sprintf("pgx connect: %s", err))
 	}
 
 	Q = New(Conn)
@@ -51,8 +51,6 @@ func Init() error {
 		slog.Error("create tables", "err", err)
 		panic(err)
 	}
-
-	return nil
 }
 
 func Close() {

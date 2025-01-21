@@ -1,7 +1,10 @@
 package email
 
 import (
+	"billing3/utils"
+	"context"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net"
@@ -11,9 +14,16 @@ import (
 	"github.com/emersion/go-smtp"
 )
 
-var username, password, endpoint, port, tlsType, from string
+type emailTaskArgs struct {
+	To      string `json:"to"`
+	Subject string `json:"subject"`
+	Body    string `json:"body"`
+}
 
-func SendMail(to, subject, body string) error {
+var username, password, endpoint, port, tlsType, from string
+var emailQueue *utils.Queue
+
+func sendmail(to, subject, body string) error {
 	slog.Info("sendmail", "to", to, "from", from, "subject", subject)
 
 	var c *smtp.Client
@@ -72,7 +82,7 @@ func SendMail(to, subject, body string) error {
 	return nil
 }
 
-// read smtp settings from env variables and start background worker
+// Init reads smtp settings from env variables and start background worker
 func Init() {
 	username = os.Getenv("SMTP_USERNAME")
 	password = os.Getenv("SMTP_PASSWORD")
@@ -81,5 +91,29 @@ func Init() {
 	tlsType = os.Getenv("SMTP_TLS")
 	from = os.Getenv("SMTP_FROM")
 
-	startWorker()
+	emailQueue = utils.NewQueue("email", 1, func(rawArgs json.RawMessage) error {
+		var args emailTaskArgs
+		err := json.Unmarshal(rawArgs, &args)
+		if err != nil {
+			return fmt.Errorf("decode args: %w", err)
+		}
+
+		return sendmail(args.To, args.Subject, args.Body)
+	})
+}
+
+func SendMailAsync(ctx context.Context, to, subject, body string) error {
+	args, err := json.Marshal(emailTaskArgs{
+		To:      to,
+		Subject: subject,
+		Body:    body,
+	})
+	if err != nil {
+		return fmt.Errorf("send mail async: %w", err)
+	}
+	err = emailQueue.Enqueue(ctx, "Send mail to "+to, args)
+	if err != nil {
+		return fmt.Errorf("send mail async: %w", err)
+	}
+	return nil
 }

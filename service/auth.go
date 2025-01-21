@@ -3,8 +3,8 @@ package service
 import (
 	"billing3/database"
 	"billing3/database/types"
+	"billing3/service/email"
 	"billing3/utils"
-	"billing3/utils/email"
 	"context"
 	"fmt"
 	"log/slog"
@@ -16,7 +16,7 @@ import (
 
 // SendVerificationEmail sends a verification email, which contains the link
 // to continue registration process
-func SendVerificationEmail(emailAddr string) {
+func SendVerificationEmail(ctx context.Context, emailAddr string) error {
 	jwtSign := JWTSign(jwt.MapClaims{
 		"aud": "register",
 		"sub": emailAddr,
@@ -26,7 +26,11 @@ func SendVerificationEmail(emailAddr string) {
 	subject := "Verify email"
 	body := fmt.Sprintf("To continue creating your account, please confirm your email address <a href=\"%s\">%s</a>", link, link)
 
-	email.SendMailAsync(emailAddr, subject, body)
+	err := email.SendMailAsync(ctx, emailAddr, subject, body)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // DecodeEmailVerificationToken decodes the token for email verification and return the email.
