@@ -103,14 +103,14 @@ func makePayment(w http.ResponseWriter, r *http.Request) {
 
 	gateway, ok := gateways.Gateways[gatewayName]
 	if !ok {
-		w.WriteHeader(http.StatusNotFound)
+		writeError(w, http.StatusBadRequest, "gateway not found")
 		return
 	}
 
 	dbGateway, err := database.Q.FindGatewayByName(r.Context(), gatewayName)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			w.WriteHeader(http.StatusNotFound)
+			writeError(w, http.StatusBadRequest, "gateway not found")
 			return
 		}
 		slog.Error("make payment", "err", err)
@@ -141,7 +141,7 @@ func makePayment(w http.ResponseWriter, r *http.Request) {
 
 	// invoice must be unpaid and not overdue
 	if invoice.Status != service.InvoiceUnpaid || invoice.DueAt.Time.Before(time.Now()) {
-		w.WriteHeader(http.StatusForbidden)
+		writeError(w, http.StatusBadRequest, "invoice is not payable")
 		return
 	}
 
