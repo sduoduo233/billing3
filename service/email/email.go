@@ -111,7 +111,7 @@ func SendMailAsync(ctx context.Context, to, subject, body string) error {
 	if err != nil {
 		return fmt.Errorf("send mail async: %w", err)
 	}
-	err = emailQueue.Enqueue(ctx, "Send mail to "+to, args)
+	err = emailQueue.Enqueue(ctx, "Send mail to "+to, args, 2)
 	if err != nil {
 		return fmt.Errorf("send mail async: %w", err)
 	}

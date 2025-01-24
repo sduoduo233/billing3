@@ -2,12 +2,14 @@ package extension
 
 import (
 	"github.com/go-chi/chi/v5"
+	"log/slog"
 	"net/http"
 )
 
 type None struct{}
 
 func (p *None) Action(serviceId int32, action string) error {
+	slog.Info("none action", "service id", serviceId, "action", action)
 	return nil
 }
 

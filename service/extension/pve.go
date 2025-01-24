@@ -93,6 +93,8 @@ func (p *PVE) apiPost(api string, body url.Values, resp any, csrf, ticket string
 }
 
 func (p *PVE) Action(serviceId int32, action string) error {
+	slog.Info("pve action", "service id", serviceId, "action", action)
+
 	switch action {
 	case "poweroff":
 		return nil

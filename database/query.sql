@@ -148,7 +148,7 @@ DELETE FROM invoice_items WHERE invoice_id = $1;
 UPDATE invoice_items SET description = $1, amount = $2 WHERE id = $3 AND invoice_id = $4;
 
 -- name: FindInvoiceByService :many
-SELECT invoices.* FROM invoices INNER JOIN invoice_items ON invoices.id = invoice_items.invoice_id WHERE invoice_items.item_id = $1 AND invoice_items.type = 'service';
+SELECT invoices.* FROM invoices INNER JOIN invoice_items ON invoices.id = invoice_items.invoice_id WHERE invoice_items.item_id = $1 AND invoice_items.type = 'service' ORDER BY invoices.id DESC;
 
 -- name: AddInvoicePayment :one
 INSERT INTO invoice_payments (invoice_id, description, amount, reference_id, gateway) VALUES ($1, $2, $3, $4, $5) RETURNING id;
@@ -168,7 +168,7 @@ SELECT * FROM services WHERE id = $1 FOR UPDATE;
 SELECT COUNT(id) FROM services WHERE (@label::text = '' OR @label::text = label) AND (@server::integer = 0 OR (settings::jsonb ? 'server' AND (settings->>'server')::integer = @server::integer)) AND (@user_id::integer = 0 OR @user_id::integer = user_id) AND (@status::text = '' OR @status::text = status);
 
 -- name: SearchServicesPaged :many
-SELECT services.label, users.name, services.id, services.status, services.user_id, services.price, services.created_at, services.billing_cycle, services.expires_at FROM services INNER JOIN users ON services.user_id = users.id WHERE (@label::text = '' OR @label::text = label) AND (@server::integer = 0 OR (settings ? 'server' AND (settings->>'server')::integer = @server::integer)) AND (@user_id::integer = 0 OR @user_id::integer = user_id) AND (@status::text = '' OR @status::text = status) ORDER BY services.id LIMIT $1 OFFSET $2;
+SELECT services.label, users.name, services.id, services.status, services.user_id, services.price, services.created_at, services.billing_cycle, services.expires_at FROM services INNER JOIN users ON services.user_id = users.id WHERE (@label::text = '' OR @label::text = label) AND (@server::integer = 0 OR (settings ? 'server' AND (settings->>'server')::integer = @server::integer)) AND (@user_id::integer = 0 OR @user_id::integer = user_id) AND (@status::text = '' OR @status::text = status) ORDER BY services.id DESC LIMIT $1 OFFSET $2;
 
 -- name: FindServiceByIdWithName :one
 SELECT services.*, users.name FROM services INNER JOIN users ON services.user_id = users.id WHERE services.id = $1;
@@ -189,7 +189,7 @@ UPDATE services SET settings = $1 WHERE id = $2;
 UPDATE services SET status = $1 WHERE id = $2;
 
 -- name: UpdateService :exec
-UPDATE services SET label = $1, status = $2, billing_cycle = $3, price = $4, expires_at = $5, cancellation_reason = $6, cancelled_at = $7 WHERE id = $8;
+UPDATE services SET label = $1, billing_cycle = $2, price = $3, expires_at = $4 WHERE id = $5;
 
 -- name: DeleteService :exec
 DELETE FROM services WHERE id = $1;
@@ -199,6 +199,9 @@ UPDATE services SET expires_at = $2 WHERE id = $1;
 
 -- name: CountServicesByServer :one
 SELECT COUNT(id) FROM services WHERE (status = 'PENDING' OR status = 'ACTIVE' OR status = 'SUSPENDED' OR status = 'UNPAID') AND (settings::jsonb ? 'server' AND (settings->>'server')::integer = @server::integer);
+
+-- name: UpdateServiceCancelled :exec
+UPDATE services SET cancellation_reason = $1, cancelled_at = $2 WHERE id = $3;
 
 -- GATEWAYS --
 

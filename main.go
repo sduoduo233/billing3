@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 
@@ -40,12 +39,12 @@ func main() {
 		AddSource: true,
 		Level:     &level,
 		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
-			if a.Key == slog.SourceKey {
-				source, _ := a.Value.Any().(*slog.Source)
-				if source != nil {
-					source.File = filepath.Base(source.File)
-				}
-			}
+			//if a.Key == slog.SourceKey {
+			//	source, _ := a.Value.Any().(*slog.Source)
+			//	if source != nil {
+			//		source.File = filepath.Base(source.File)
+			//	}
+			//}
 			return a
 		},
 	})))

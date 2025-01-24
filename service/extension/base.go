@@ -1,6 +1,7 @@
 package extension
 
 import (
+	"billing3/utils"
 	"fmt"
 	"github.com/go-chi/chi/v5"
 	"log/slog"
@@ -8,6 +9,7 @@ import (
 )
 
 var Extensions = make(map[string]Extension)
+var Queues = make(map[string]*utils.Queue)
 
 type ProductSetting struct {
 	DisplayName string   `json:"display_name"` // the name that will be displayed on frontend
@@ -84,6 +86,8 @@ func Init() error {
 		if err != nil {
 			return fmt.Errorf("init %s: %w", name, err)
 		}
+
+		Queues[name] = initQueue(name, extension)
 	}
 	return nil
 }

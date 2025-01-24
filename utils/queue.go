@@ -24,6 +24,7 @@ type Task struct {
 	CreatedAt   int64           `json:"created_at"`
 	Args        json.RawMessage `json:"args"`
 	Description string          `json:"description"`
+	Attempts    int             `json:"attempts"`
 }
 
 // NewQueue returns a new queue and starts n worker goroutines.
@@ -51,6 +52,8 @@ func (q *Queue) doWork() {
 	slog.Debug("redis worker started", "name", q.name)
 
 	for {
+		// dequeue
+
 		resp := database.RedisClient.BRPop(q.ctx, time.Second*10, "queue_"+q.name)
 
 		if resp.Err() != nil {
@@ -58,7 +61,6 @@ func (q *Queue) doWork() {
 				slog.Debug("redis worker cancelled", "name", q.name)
 				return
 			} else if errors.Is(resp.Err(), redis.Nil) {
-				slog.Debug("redis dequeue timeout", "name", q.name)
 				continue
 			} else {
 				slog.Error("redis dequeue", "err", resp.Err(), "name", q.name)
@@ -72,6 +74,8 @@ func (q *Queue) doWork() {
 			continue
 		}
 
+		// run the task
+
 		var task Task
 		err = json.Unmarshal([]byte(result[1]), &task)
 		if err != nil {
@@ -79,23 +83,42 @@ func (q *Queue) doWork() {
 			continue
 		}
 
+		task.Attempts -= 1
+
 		slog.Info("do work", "name", q.name, "created at", task.CreatedAt, "description", task.Description)
 
 		err = q.worker(task.Args)
 		if err != nil {
 			slog.Error("work failed", "err", err, "name", q.name, "created_at", task.CreatedAt, "description", task.Description)
+
+			if task.Attempts > 0 {
+				slog.Info("retry enqueue", "name", q.name, "description", task.Description, "attempts", task.Attempts)
+
+				err := q.Enqueue(context.Background(), task.Description, task.Args, task.Attempts)
+				if err != nil {
+					slog.Error("retry enqueue failed", "err", err, "name", q.name, "description", task.Description, "attempts", task.Attempts)
+					continue
+				}
+			}
 		}
 	}
 }
 
 // Enqueue enqueues a task. v must be a json serializable.
-func (q *Queue) Enqueue(ctx context.Context, description string, args json.RawMessage) error {
+func (q *Queue) Enqueue(ctx context.Context, description string, args json.RawMessage, attempts int) error {
 	task := Task{
 		CreatedAt:   time.Now().Unix(),
 		Args:        args,
 		Description: description,
+		Attempts:    attempts,
 	}
-	err := database.RedisClient.LPush(ctx, "queue_"+q.name, task).Err()
+
+	taskJson, err := json.Marshal(&task)
+	if err != nil {
+		return fmt.Errorf("redis enqueue: json encode: %w", err)
+	}
+
+	err = database.RedisClient.LPush(ctx, "queue_"+q.name, taskJson).Err()
 	if err != nil {
 		return fmt.Errorf("redis enqueue: %w", err)
 	}

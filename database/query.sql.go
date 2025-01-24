@@ -560,7 +560,7 @@ func (q *Queries) FindInvoiceByIdWithUsername(ctx context.Context, id int32) (Fi
 }
 
 const findInvoiceByService = `-- name: FindInvoiceByService :many
-SELECT invoices.id, invoices.user_id, invoices.status, invoices.cancellation_reason, invoices.paid_at, invoices.due_at, invoices.amount, invoices.created_at FROM invoices INNER JOIN invoice_items ON invoices.id = invoice_items.invoice_id WHERE invoice_items.item_id = $1 AND invoice_items.type = 'service'
+SELECT invoices.id, invoices.user_id, invoices.status, invoices.cancellation_reason, invoices.paid_at, invoices.due_at, invoices.amount, invoices.created_at FROM invoices INNER JOIN invoice_items ON invoices.id = invoice_items.invoice_id WHERE invoice_items.item_id = $1 AND invoice_items.type = 'service' ORDER BY invoices.id DESC
 `
 
 func (q *Queries) FindInvoiceByService(ctx context.Context, itemID pgtype.Int4) ([]Invoice, error) {
@@ -1275,7 +1275,7 @@ func (q *Queries) SearchProduct(ctx context.Context, categoryID int32) ([]Search
 }
 
 const searchServicesPaged = `-- name: SearchServicesPaged :many
-SELECT services.label, users.name, services.id, services.status, services.user_id, services.price, services.created_at, services.billing_cycle, services.expires_at FROM services INNER JOIN users ON services.user_id = users.id WHERE ($3::text = '' OR $3::text = label) AND ($4::integer = 0 OR (settings ? 'server' AND (settings->>'server')::integer = $4::integer)) AND ($5::integer = 0 OR $5::integer = user_id) AND ($6::text = '' OR $6::text = status) ORDER BY services.id LIMIT $1 OFFSET $2
+SELECT services.label, users.name, services.id, services.status, services.user_id, services.price, services.created_at, services.billing_cycle, services.expires_at FROM services INNER JOIN users ON services.user_id = users.id WHERE ($3::text = '' OR $3::text = label) AND ($4::integer = 0 OR (settings ? 'server' AND (settings->>'server')::integer = $4::integer)) AND ($5::integer = 0 OR $5::integer = user_id) AND ($6::text = '' OR $6::text = status) ORDER BY services.id DESC LIMIT $1 OFFSET $2
 `
 
 type SearchServicesPagedParams struct {
@@ -1574,31 +1574,40 @@ func (q *Queries) UpdateServer(ctx context.Context, arg UpdateServerParams) erro
 }
 
 const updateService = `-- name: UpdateService :exec
-UPDATE services SET label = $1, status = $2, billing_cycle = $3, price = $4, expires_at = $5, cancellation_reason = $6, cancelled_at = $7 WHERE id = $8
+UPDATE services SET label = $1, billing_cycle = $2, price = $3, expires_at = $4 WHERE id = $5
 `
 
 type UpdateServiceParams struct {
-	Label              string          `json:"label"`
-	Status             string          `json:"status"`
-	BillingCycle       int32           `json:"billing_cycle"`
-	Price              decimal.Decimal `json:"price"`
-	ExpiresAt          types.Timestamp `json:"expires_at"`
-	CancellationReason pgtype.Text     `json:"cancellation_reason"`
-	CancelledAt        types.Timestamp `json:"cancelled_at"`
-	ID                 int32           `json:"id"`
+	Label        string          `json:"label"`
+	BillingCycle int32           `json:"billing_cycle"`
+	Price        decimal.Decimal `json:"price"`
+	ExpiresAt    types.Timestamp `json:"expires_at"`
+	ID           int32           `json:"id"`
 }
 
 func (q *Queries) UpdateService(ctx context.Context, arg UpdateServiceParams) error {
 	_, err := q.db.Exec(ctx, updateService,
 		arg.Label,
-		arg.Status,
 		arg.BillingCycle,
 		arg.Price,
 		arg.ExpiresAt,
-		arg.CancellationReason,
-		arg.CancelledAt,
 		arg.ID,
 	)
+	return err
+}
+
+const updateServiceCancelled = `-- name: UpdateServiceCancelled :exec
+UPDATE services SET cancellation_reason = $1, cancelled_at = $2 WHERE id = $3
+`
+
+type UpdateServiceCancelledParams struct {
+	CancellationReason pgtype.Text     `json:"cancellation_reason"`
+	CancelledAt        types.Timestamp `json:"cancelled_at"`
+	ID                 int32           `json:"id"`
+}
+
+func (q *Queries) UpdateServiceCancelled(ctx context.Context, arg UpdateServiceCancelledParams) error {
+	_, err := q.db.Exec(ctx, updateServiceCancelled, arg.CancellationReason, arg.CancelledAt, arg.ID)
 	return err
 }
 

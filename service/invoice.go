@@ -3,6 +3,7 @@ package service
 import (
 	"billing3/database"
 	"billing3/database/types"
+	"billing3/service/extension"
 	"context"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"github.com/shopspring/decimal"
 	"log/slog"
 	"math"
+	"slices"
 	"time"
 )
 
@@ -55,7 +57,7 @@ func SearchInvoice(ctx context.Context, status string, userId int, page int, ite
 //
 // Setup fee is added if setupFee is positive. Setup fee must not be negative.
 //
-// qtx should be a transaction.
+// qtx should be a transaction. qtx is not commited.
 func CreateRenewalInvoice(ctx context.Context, qtx *database.Queries, serviceId int32, setupFee decimal.Decimal) (int32, error) {
 	if setupFee.LessThan(decimal.Zero) {
 		return 0, fmt.Errorf("setup fee must not be negative")
@@ -183,6 +185,10 @@ func InvoiceAddPayment(ctx context.Context, invoiceId int32, description string,
 	return nil
 }
 
+// OnInvoicePaid does the following things to services in the invoice:
+// - extend expiry date by billing cycle
+// - mark the service as PENDING if the service is previously UNPAID
+// - call the extension's create action if possible
 func OnInvoicePaid(invoiceId int32) {
 	slog.Info("on invoice paid", "invoice_id", invoiceId)
 
@@ -251,6 +257,30 @@ func OnInvoicePaid(invoiceId int32) {
 					slog.Error("on invoice paid", "err", err)
 					continue
 				}
+			}
+
+			// create service
+			ext, ok := extension.Extensions[s.Extension]
+			if !ok {
+				slog.Error("invalid extension", "service id", itemId, "extension", s.Extension)
+				continue
+			}
+
+			actions, err := ext.AdminActions(itemId)
+			if err != nil {
+				slog.Error("extension admin actions", "err", err, "service_id", itemId, "extension", s.Extension)
+				continue
+			}
+
+			if !slices.Contains(actions, "create") {
+				continue
+			}
+
+			slog.Info("create service", "service_id", itemId)
+
+			err = extension.DoActionAsync(ctx, s.Extension, itemId, "action", ServiceActive)
+			if err != nil {
+				slog.Error("do action async", "err", err)
 			}
 		}
 	}
