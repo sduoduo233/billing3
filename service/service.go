@@ -18,6 +18,7 @@ const (
 	ServiceUnpaid    = "UNPAID"
 )
 
+// ServiceAdminActions returns a list of action that can be preformed on this service, by an admin
 func ServiceAdminActions(ctx context.Context, serviceId int32) (*database.Service, []string, error) {
 	s, err := database.Q.FindServiceById(ctx, serviceId)
 	if err != nil {
@@ -35,7 +36,7 @@ func ServiceAdminActions(ctx context.Context, serviceId int32) (*database.Servic
 	ext, ok := extension.Extensions[s.Extension]
 	if !ok {
 		slog.Error("extension not found", "service id", serviceId, "extension", s.Extension)
-		return nil, nil, ErrNotFound
+		return nil, nil, ErrInternalError
 	}
 
 	actions, err := ext.AdminActions(s.ID)
@@ -47,6 +48,7 @@ func ServiceAdminActions(ctx context.Context, serviceId int32) (*database.Servic
 	return &s, actions, nil
 }
 
+// ServiceClientActions returns a list of action that can be preformed on this service, by a client
 func ServiceClientActions(ctx context.Context, serviceId int32) ([]string, error) {
 	s, err := database.Q.FindServiceById(ctx, serviceId)
 	if err != nil {
@@ -76,6 +78,7 @@ func ServiceClientActions(ctx context.Context, serviceId int32) ([]string, error
 	return actions, nil
 }
 
+// CancelOverdueServices terminates overdue services
 func CancelOverdueServices() error {
 	ctx := context.Background()
 
