@@ -18,7 +18,7 @@ func (p *None) ClientActions(serviceId int32) ([]string, error) {
 }
 
 func (p *None) AdminActions(serviceId int32) ([]string, error) {
-	return []string{}, nil
+	return []string{"suspend", "unsuspend", "terminate", "create"}, nil
 }
 
 func (p *None) Route(r chi.Router) error {
