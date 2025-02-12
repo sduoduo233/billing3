@@ -38,7 +38,7 @@ func (t *Timestamp) UnmarshalJSON(input []byte) error {
 			return fmt.Errorf("unmarshalling timestamp: %w", err)
 		}
 		t.Valid = true
-		t.Time = time.Unix(i, 0)
+		t.Time = time.Unix(i, 0).UTC()
 		t.InfinityModifier = pgtype.Finite
 	}
 
