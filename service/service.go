@@ -5,6 +5,7 @@ import (
 	"billing3/service/extension"
 	"context"
 	"errors"
+	"fmt"
 	"github.com/jackc/pgx/v5"
 	"log/slog"
 )
@@ -73,4 +74,24 @@ func ServiceClientActions(ctx context.Context, serviceId int32) ([]string, error
 	}
 
 	return actions, nil
+}
+
+func CancelOverdueServices() error {
+	ctx := context.Background()
+
+	services, err := database.Q.FindOverdueServices(ctx)
+	if err != nil {
+		return fmt.Errorf("db: %w", err)
+	}
+
+	for _, service := range services {
+		slog.Info("terminate overdue service", "id", service.ID)
+
+		err := extension.DoActionAsync(ctx, service.Extension, service.ID, "terminate", ServiceCancelled)
+		if err != nil {
+			return fmt.Errorf("db: %w", err)
+		}
+	}
+
+	return nil
 }

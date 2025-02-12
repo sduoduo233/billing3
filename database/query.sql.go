@@ -592,6 +592,76 @@ func (q *Queries) FindInvoiceByService(ctx context.Context, itemID pgtype.Int4) 
 	return items, nil
 }
 
+const findOverdueInvoices = `-- name: FindOverdueInvoices :many
+SELECT id, user_id, status, cancellation_reason, paid_at, due_at, amount, created_at FROM invoices WHERE status = 'UNPAID' AND due_at <= CURRENT_TIMESTAMP ORDER BY id
+`
+
+func (q *Queries) FindOverdueInvoices(ctx context.Context) ([]Invoice, error) {
+	rows, err := q.db.Query(ctx, findOverdueInvoices)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Invoice{}
+	for rows.Next() {
+		var i Invoice
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.Status,
+			&i.CancellationReason,
+			&i.PaidAt,
+			&i.DueAt,
+			&i.Amount,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const findOverdueServices = `-- name: FindOverdueServices :many
+SELECT id, label, user_id, status, cancellation_reason, billing_cycle, price, extension, settings, expires_at, created_at, cancelled_at FROM services WHERE (status = 'SUSPENDED' OR status = 'ACTIVE' OR status = 'PENDING') AND expires_at <= CURRENT_TIMESTAMP ORDER BY id
+`
+
+func (q *Queries) FindOverdueServices(ctx context.Context) ([]Service, error) {
+	rows, err := q.db.Query(ctx, findOverdueServices)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Service{}
+	for rows.Next() {
+		var i Service
+		if err := rows.Scan(
+			&i.ID,
+			&i.Label,
+			&i.UserID,
+			&i.Status,
+			&i.CancellationReason,
+			&i.BillingCycle,
+			&i.Price,
+			&i.Extension,
+			&i.Settings,
+			&i.ExpiresAt,
+			&i.CreatedAt,
+			&i.CancelledAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const findProductById = `-- name: FindProductById :one
 SELECT id, name, description, category_id, extension, enabled, pricing, settings, stock, stock_control FROM products WHERE id = $1
 `
@@ -1489,6 +1559,20 @@ func (q *Queries) UpdateInvoiceAmount(ctx context.Context, invoiceID int32) erro
 	return err
 }
 
+const updateInvoiceCancelled = `-- name: UpdateInvoiceCancelled :exec
+UPDATE invoices SET status = 'CANCELLED', cancellation_reason = $1 WHERE id = $2
+`
+
+type UpdateInvoiceCancelledParams struct {
+	CancellationReason pgtype.Text `json:"cancellation_reason"`
+	ID                 int32       `json:"id"`
+}
+
+func (q *Queries) UpdateInvoiceCancelled(ctx context.Context, arg UpdateInvoiceCancelledParams) error {
+	_, err := q.db.Exec(ctx, updateInvoiceCancelled, arg.CancellationReason, arg.ID)
+	return err
+}
+
 const updateInvoiceItem = `-- name: UpdateInvoiceItem :exec
 UPDATE invoice_items SET description = $1, amount = $2 WHERE id = $3 AND invoice_id = $4
 `
@@ -1597,7 +1681,7 @@ func (q *Queries) UpdateService(ctx context.Context, arg UpdateServiceParams) er
 }
 
 const updateServiceCancelled = `-- name: UpdateServiceCancelled :exec
-UPDATE services SET cancellation_reason = $1, cancelled_at = $2 WHERE id = $3
+UPDATE services SET cancellation_reason = $1, cancelled_at = $2, status = 'CANCELLED' WHERE id = $3
 `
 
 type UpdateServiceCancelledParams struct {

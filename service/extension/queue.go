@@ -91,6 +91,8 @@ func DoActionAsync(ctx context.Context, ext string, serviceId int32, action stri
 		return ErrActionRunning
 	}
 
+	slog.Info("do action async", "ext", ext, "service id", serviceId, "action", action, "new status", newStatus)
+
 	args := taskArgs{
 		ServiceId: serviceId,
 		NewStatus: newStatus,

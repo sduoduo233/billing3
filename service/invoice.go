@@ -291,3 +291,48 @@ func OnInvoicePaid(invoiceId int32) {
 		return
 	}
 }
+
+func CloseOverdueInvoices() error {
+	ctx := context.Background()
+	invoices, err := database.Q.FindOverdueInvoices(ctx)
+	if err != nil {
+		return fmt.Errorf("db: %w", err)
+	}
+
+	for _, invoice := range invoices {
+		slog.Info("cancel overdue invoice", "id", invoice.ID)
+
+		// cancel the invoice
+		err := database.Q.UpdateInvoiceCancelled(ctx, database.UpdateInvoiceCancelledParams{
+			CancellationReason: pgtype.Text{Valid: true, String: "overdue"},
+			ID:                 invoice.ID,
+		})
+		if err != nil {
+			return fmt.Errorf("db: %w", err)
+		}
+
+		// cancel the service if the service is unpaid
+		items, err := database.Q.ListInvoiceItems(ctx, invoice.ID)
+		if err != nil {
+			return fmt.Errorf("db: %w", err)
+		}
+
+		for _, item := range items {
+			if item.Type == InvoiceItemService && item.ItemID.Valid {
+				slog.Info("cancel overdue unpaid service", "id", item.ID)
+
+				err = database.Q.UpdateServiceCancelled(ctx, database.UpdateServiceCancelledParams{
+					CancellationReason: pgtype.Text{Valid: true, String: "invoice overdue"},
+					ID:                 item.ItemID.Int32,
+					CancelledAt:        types.Timestamp{Timestamp: pgtype.Timestamp{Valid: true, Time: time.Now()}},
+				})
+				if err != nil {
+					return fmt.Errorf("db: %w", err)
+				}
+			}
+		}
+
+	}
+
+	return nil
+}

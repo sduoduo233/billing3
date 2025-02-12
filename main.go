@@ -73,6 +73,9 @@ func main() {
 	service.InitJWT()
 	email.Init()
 
+	// cron jobs
+	service.InitCron()
+
 	// router
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
