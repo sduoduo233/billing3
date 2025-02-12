@@ -278,7 +278,7 @@ func OnInvoicePaid(invoiceId int32) {
 
 			slog.Info("create service", "service_id", itemId)
 
-			err = extension.DoActionAsync(ctx, s.Extension, itemId, "action", ServiceActive)
+			err = extension.DoActionAsync(ctx, s.Extension, itemId, "create", ServiceActive)
 			if err != nil {
 				slog.Error("do action async", "err", err)
 			}
