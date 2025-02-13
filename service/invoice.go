@@ -319,7 +319,17 @@ func CloseOverdueInvoices() error {
 
 		for _, item := range items {
 			if item.Type == InvoiceItemService && item.ItemID.Valid {
-				slog.Info("cancel overdue unpaid service", "id", item.ID)
+
+				service, err := database.Q.FindServiceById(ctx, item.ID)
+				if err != nil {
+					return fmt.Errorf("db: %w", err)
+				}
+
+				if service.Status != ServiceUnpaid {
+					continue
+				}
+
+				slog.Info("cancel overdue unpaid service", "id", item.ID, "invoice id", invoice.ID)
 
 				err = database.Q.UpdateServiceCancelled(ctx, database.UpdateServiceCancelledParams{
 					CancellationReason: pgtype.Text{Valid: true, String: "invoice overdue"},
