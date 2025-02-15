@@ -792,11 +792,9 @@ func (q *Queries) FindServiceById(ctx context.Context, id int32) (Service, error
 }
 
 const findServiceByIdForUpdate = `-- name: FindServiceByIdForUpdate :one
-
 SELECT id, label, user_id, status, cancellation_reason, billing_cycle, price, extension, settings, expires_at, created_at, cancelled_at FROM services WHERE id = $1 FOR UPDATE
 `
 
-// SERVICES --
 func (q *Queries) FindServiceByIdForUpdate(ctx context.Context, id int32) (Service, error) {
 	row := q.db.QueryRow(ctx, findServiceByIdForUpdate, id)
 	var i Service
@@ -856,6 +854,45 @@ func (q *Queries) FindServiceByIdWithName(ctx context.Context, id int32) (FindSe
 		&i.Name,
 	)
 	return i, err
+}
+
+const findServiceByUser = `-- name: FindServiceByUser :many
+
+SELECT id, label, user_id, status, cancellation_reason, billing_cycle, price, extension, settings, expires_at, created_at, cancelled_at FROM services WHERE user_id = $1 ORDER BY id DESC
+`
+
+// SERVICES --
+func (q *Queries) FindServiceByUser(ctx context.Context, userID int32) ([]Service, error) {
+	rows, err := q.db.Query(ctx, findServiceByUser, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Service{}
+	for rows.Next() {
+		var i Service
+		if err := rows.Scan(
+			&i.ID,
+			&i.Label,
+			&i.UserID,
+			&i.Status,
+			&i.CancellationReason,
+			&i.BillingCycle,
+			&i.Price,
+			&i.Extension,
+			&i.Settings,
+			&i.ExpiresAt,
+			&i.CreatedAt,
+			&i.CancelledAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const findSessionByToken = `-- name: FindSessionByToken :one

@@ -167,6 +167,9 @@ UPDATE invoices SET status = 'CANCELLED', cancellation_reason = $1 WHERE id = $2
 
 -- SERVICES --
 
+-- name: FindServiceByUser :many
+SELECT * FROM services WHERE user_id = $1 ORDER BY id DESC;
+
 -- name: FindServiceByIdForUpdate :one
 SELECT * FROM services WHERE id = $1 FOR UPDATE;
 

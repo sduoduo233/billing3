@@ -95,6 +95,8 @@ func (p *PVE) apiPost(api string, body url.Values, resp any, csrf, ticket string
 func (p *PVE) Action(serviceId int32, action string) error {
 	slog.Info("pve action", "service id", serviceId, "action", action)
 
+	time.Sleep(10 * time.Second)
+
 	switch action {
 	case "poweroff":
 		return nil
@@ -180,12 +182,26 @@ func (p *PVE) Action(serviceId int32, action string) error {
 }
 
 func (p *PVE) ClientActions(serviceId int32) ([]string, error) {
-	//TODO implement me
-	panic("implement me")
+	s, err := database.Q.FindServiceById(context.Background(), serviceId)
+	if err != nil {
+		return nil, fmt.Errorf("pve: db: %w", err)
+	}
+	if _, ok := s.Settings["server"]; ok {
+		return []string{"poweroff", "reboot"}, nil
+	}
+	return []string{"poweroff", "reboot"}, nil
+
 }
 
 func (p *PVE) AdminActions(serviceId int32) ([]string, error) {
-	return []string{"poweroff", "reboot", "terminate", "suspend", "unsuspend", "create"}, nil
+	s, err := database.Q.FindServiceById(context.Background(), serviceId)
+	if err != nil {
+		return nil, fmt.Errorf("pve: db: %w", err)
+	}
+	if _, ok := s.Settings["server"]; ok {
+		return []string{"poweroff", "reboot", "terminate", "suspend", "unsuspend", "create"}, nil
+	}
+	return []string{"create"}, nil
 }
 
 func (p *PVE) Route(r chi.Router) error {
@@ -196,12 +212,12 @@ func (p *PVE) Route(r chi.Router) error {
 }
 
 func (p *PVE) ClientPage(w http.ResponseWriter, serviceId int32) error {
-	//TODO implement me
-	panic("implement me")
+	io.WriteString(w, "<style>*{font-family:system-ui,sans-serif}</style><p>Memory: 123MB / 1024MB</p><p>Bandwidth: 1G / 1024G</p><p>Disk: 5G / 20G</p><p>CPU: 30%</p>")
+	return nil
 }
 
 func (p *PVE) AdminPage(w http.ResponseWriter, serviceId int32) error {
-	io.WriteString(w, "<p>Memory: 123MB / 1024MB</p><p>Bandwidth: 1G / 1024G</p><p>Disk: 5G / 20G</p><p>CPU: 30%</p>")
+	io.WriteString(w, "<style>*{font-family:system-ui,sans-serif}</style><p>Memory: 123MB / 1024MB</p><p>Bandwidth: 1G / 1024G</p><p>Disk: 5G / 20G</p><p>CPU: 30%</p>")
 	return nil
 }
 

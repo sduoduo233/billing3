@@ -59,7 +59,7 @@ func ServiceClientActions(ctx context.Context, serviceId int32) ([]string, error
 		return nil, ErrInternalError
 	}
 
-	if s.Status == ServiceCancelled {
+	if s.Status != ServiceActive {
 		return nil, ErrServiceCancelled
 	}
 
@@ -97,4 +97,12 @@ func CancelOverdueServices() error {
 	}
 
 	return nil
+}
+
+func IsServiceOwner(ctx context.Context, userId int32, serviceId int32) (bool, error) {
+	s, err := database.Q.FindServiceById(ctx, serviceId)
+	if err != nil {
+		return false, fmt.Errorf("db: %w", err)
+	}
+	return s.UserID == userId, nil
 }
