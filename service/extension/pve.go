@@ -2,11 +2,14 @@ package extension
 
 import (
 	"billing3/database"
+	"billing3/database/types"
 	"billing3/utils"
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"html/template"
 	"io"
 	"log/slog"
 	"net/http"
@@ -16,14 +19,33 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+
+	_ "embed"
 )
+
+//go:embed pveinfo.html
+var pveInfoHtml string
+
+var errNoServerAssigned = errors.New("no server assigned")
 
 type PVE struct {
 	httpClient http.Client
+	infoPage   *template.Template
 }
 
 type pveResp[T any] struct {
 	Data T `json:"data"`
+}
+
+type pveVmInfo struct {
+	Status      string
+	MaxDisk     int
+	MaxMemory   int
+	Name        string
+	Cores       int
+	IPv4        string
+	IPv4Gateway string
+	Username    string
 }
 
 // pveAuth returns CSRFPreventionToken and ticket
@@ -38,15 +60,27 @@ func (p *PVE) pveAuth(base string, username string, password string) (string, st
 	}
 	defer httpResp.Body.Close()
 
+	all, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return "", "", fmt.Errorf("auth: %w", err)
+	}
+
+	slog.Debug("pve auth", "base", base, "username", username, "resp", string(all), "status", httpResp.Status)
+
+	if httpResp.StatusCode != http.StatusOK {
+		return "", "", fmt.Errorf("auth: %s", httpResp.Status)
+	}
+
 	resp := pveResp[struct {
 		CSRFPreventionToken string `json:"CSRFPreventionToken"`
 		Ticket              string `json:"ticket"`
 		Username            string `json:"username"`
 	}]{}
-	err = json.NewDecoder(httpResp.Body).Decode(&resp)
+	err = json.Unmarshal(all, &resp)
 	if err != nil {
 		return "", "", fmt.Errorf("auth: %w", err)
 	}
+
 	return resp.Data.CSRFPreventionToken, resp.Data.Ticket, nil
 }
 
@@ -63,11 +97,18 @@ func (p *PVE) apiGet(api string, resp any, ticket string) error {
 	}
 	defer httpResp.Body.Close()
 
-	if httpResp.StatusCode/100 != 2 {
-		return fmt.Errorf("api post: status code: %s", httpResp.Status)
+	all, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return fmt.Errorf("api get: %w", err)
 	}
 
-	err = json.NewDecoder(httpResp.Body).Decode(resp)
+	slog.Debug("pve get", "url", api, "resp", string(all), "status", httpResp.Status)
+
+	if httpResp.StatusCode/100 != 2 {
+		return fmt.Errorf("api post: Status code: %s", httpResp.Status)
+	}
+
+	err = json.Unmarshal(all, &resp)
 	if err != nil {
 		return fmt.Errorf("api get: %w", err)
 	}
@@ -94,7 +135,7 @@ func (p *PVE) apiAction(method string, api string, body url.Values, resp any, cs
 		return fmt.Errorf("api post: %w", err)
 	}
 
-	slog.Debug("pve post", "url", api, "body", all, "resp", resp, "status", httpResp.Status)
+	slog.Debug("pve post", "url", api, "body", body, "resp", string(all), "status", httpResp.Status)
 
 	if httpResp.StatusCode/100 != 2 {
 		return fmt.Errorf("api post: status code: %s", httpResp.Status)
@@ -161,7 +202,7 @@ func (p *PVE) createService(serviceId int32) error {
 
 	address := server.Settings["address"]
 	port := server.Settings["port"]
-	username := server.Settings["username"]
+	username := server.Settings["Username"]
 	password := server.Settings["password"]
 	node := server.Settings["node"]
 	ips := server.Settings["ips"]
@@ -259,6 +300,27 @@ func (p *PVE) createService(serviceId int32) error {
 	return nil
 }
 
+// getServiceSettings returns the service and server settings for the service id.
+func (p *PVE) getServiceSettings(serviceId int32) (types.ServiceSettings, types.ServerSettings, error) {
+	s, err := database.Q.FindServiceById(context.Background(), serviceId)
+	if err != nil {
+		return nil, nil, fmt.Errorf("get service settings: db: %w", err)
+	}
+	serverIdStr, ok := s.Settings["server"]
+	if !ok {
+		return nil, nil, errNoServerAssigned
+	}
+	serverId, err := strconv.Atoi(serverIdStr)
+	if err != nil {
+		return nil, nil, fmt.Errorf("get service settings: not integer: %s", serverIdStr)
+	}
+	ss, err := database.Q.FindServerById(context.Background(), int32(serverId))
+	if err != nil {
+		return nil, nil, fmt.Errorf("get service settings: db: %w", err)
+	}
+	return s.Settings, ss.Settings, nil
+}
+
 func (p *PVE) Action(serviceId int32, action string) error {
 	slog.Info("pve action", "service id", serviceId, "action", action)
 
@@ -310,13 +372,88 @@ func (p *PVE) Route(r chi.Router) error {
 	return nil
 }
 
+func (p *PVE) getQemuVmInfo(serviceId int32) (*pveVmInfo, error) {
+	_, serverSettings, err := p.getServiceSettings(serviceId)
+	if err != nil {
+		return nil, fmt.Errorf("pve: %w", err)
+	}
+
+	vmInfo := pveVmInfo{}
+
+	address := serverSettings["address"]
+	port := serverSettings["port"]
+	username := serverSettings["username"]
+	password := serverSettings["password"]
+	node := serverSettings["node"]
+	baseUrl := fmt.Sprintf("https://%s:%s/api2/json", address, port)
+
+	_, ticket, err := p.pveAuth(baseUrl, username, password)
+	if err != nil {
+		return nil, fmt.Errorf("pve: %w", err)
+	}
+
+	vmid := int(10000 + serviceId)
+
+	respStatus := pveResp[struct {
+		Status  string `json:"status"`
+		MaxDisk int    `json:"maxdisk"`
+		MaxMem  int    `json:"maxmem"`
+		Name    string `json:"Name"`
+	}]{}
+	err = p.apiGet(fmt.Sprintf("%s/nodes/%s/qemu/%d/status/current", baseUrl, node, vmid), &respStatus, ticket)
+	if err != nil {
+		return nil, fmt.Errorf("pve: %w", err)
+	}
+
+	vmInfo.Name = respStatus.Data.Name
+	vmInfo.Status = respStatus.Data.Status
+	vmInfo.MaxDisk = respStatus.Data.MaxDisk / 1024 / 1024 / 1024
+	vmInfo.MaxMemory = respStatus.Data.MaxMem / 1024 / 1024
+
+	respConfig := pveResp[struct {
+		Cores     int    `json:"cores"`
+		IPConfig0 string `json:"ipconfig0"`
+		CiUser    string `json:"ciuser"`
+	}]{}
+	err = p.apiGet(fmt.Sprintf("%s/nodes/%s/qemu/%d/config", baseUrl, node, vmid), &respConfig, ticket)
+	if err != nil {
+		return nil, fmt.Errorf("pve: %w", err)
+	}
+
+	vmInfo.Cores = respConfig.Data.Cores
+	vmInfo.Username = respConfig.Data.CiUser
+	for _, s := range strings.Split(respConfig.Data.IPConfig0, ",") {
+		if strings.HasPrefix(s, "gw=") {
+			vmInfo.IPv4Gateway = strings.TrimPrefix(s, "gw=")
+		}
+		if strings.HasPrefix(s, "ip=") {
+			vmInfo.IPv4 = strings.TrimPrefix(s, "ip=")
+		}
+	}
+
+	return &vmInfo, nil
+}
+
 func (p *PVE) ClientPage(w http.ResponseWriter, serviceId int32) error {
-	io.WriteString(w, "<style>*{font-family:system-ui,sans-serif}</style><p>Memory: 123MB / 1024MB</p><p>Bandwidth: 1G / 1024G</p><p>Disk: 5G / 20G</p><p>CPU: 30%</p>")
-	return nil
+	return p.AdminPage(w, serviceId)
 }
 
 func (p *PVE) AdminPage(w http.ResponseWriter, serviceId int32) error {
-	io.WriteString(w, "<style>*{font-family:system-ui,sans-serif}</style><p>Memory: 123MB / 1024MB</p><p>Bandwidth: 1G / 1024G</p><p>Disk: 5G / 20G</p><p>CPU: 30%</p>")
+	info, err := p.getQemuVmInfo(serviceId)
+	if err != nil {
+		if errors.Is(err, errNoServerAssigned) {
+			io.WriteString(w, "<span style=\"font-family: sans-serif\">This service is not created</span>")
+			return nil
+		}
+		io.WriteString(w, "<span style=\"font-family: sans-serif\">Something went wrong</span>")
+		return err
+	}
+
+	err = p.infoPage.Execute(w, info)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -330,6 +467,7 @@ func (p *PVE) Init() error {
 			},
 		},
 	}
+	p.infoPage = template.Must(template.New("pve_info").Parse(pveInfoHtml))
 	return nil
 }
 
