@@ -1,111 +1,93 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-bs-theme="dark">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PVE Virtual Machine Info</title>
+    <title>PVE Info</title>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/js/bootstrap.bundle.min.js"
-            integrity="sha512-7Pi/otdlbbCR+LnW+F7PwFcSDJOuUJB3OxtEHbg4vSMvzvJjde4Po1v4BR9Gdc9aXNUNFVUY+SK51wWT8WF0Gg=="
-            crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/css/bootstrap.min.css"
           integrity="sha512-jnSuA4Ss2PkkikSOLtYs8BlYIeeIK1h99ty4YfvRPAlzr377vr3CXDb7sb7eEEBYjDtcYj+AjBH3FLv5uSJuXg=="
           crossorigin="anonymous" referrerpolicy="no-referrer"/>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"
-          integrity="sha512-Evv84Mr4kqVGRNSgIGL/F/aIDqQb7xQ2vcrdIwxfjThSH8CSR7PBEakCr51Ck+w+/U6swU2Im1vVX0SVk9ABhg=="
+
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css"
+          integrity="sha512-dPXYcDub/aeb08c63jRq/k6GaKccl256JQy/AnOq7CAnEZ9FzSL9wSbcZkMp4R26vBsMLFYH4kQ67/bbV8XaCQ=="
           crossorigin="anonymous" referrerpolicy="no-referrer"/>
 </head>
-<body class="bg-light">
-<div class="container py-5">
-    <div class="row justify-content-center">
-        <div class="col-md-8">
-            <div class="card shadow">
-                <div class="card-header bg-primary text-white">
-                    <h3 class="mb-0">
-                        <i class="fas fa-server me-2"></i>
-                        Virtual Machine Information
-                    </h3>
-                </div>
-                <div class="card-body">
-                    <div class="row">
-                        <div class="col-md-6">
-                            <!-- Status -->
-                            <div class="mb-4">
-                                <h5 class="text-muted mb-2">Status</h5>
-                                {{ if eq .Status "running" }}
-                                <span class="badge bg-success fs-6">
-                                    <i class="fas fa-circle me-1"></i>{{ .Status }}
-                                </span>
-                                {{ else }}
-                                <span class="badge bg-danger fs-6">
-                                    <i class="fas fa-circle me-1"></i>{{ .Status }}
-                                </span>
-                                {{ end }}
-                            </div>
 
-                            <!-- CPU Cores -->
-                            <div class="mb-4">
-                                <h5 class="text-muted mb-2">CPU Cores</h5>
-                                <p class="fs-5">
-                                    <i class="fas fa-microchip me-2"></i>
-                                    {{ .Cores }} Cores
-                                </p>
-                            </div>
+<body>
 
-                            <!-- Max Memory -->
-                            <div class="mb-4">
-                                <h5 class="text-muted mb-2">Max Memory</h5>
-                                <p class="fs-5">
-                                    <i class="fas fa-memory me-2"></i>
-                                    {{ .MaxMemory }} MB
-                                </p>
-                            </div>
-                        </div>
+<div class="m-3">
+    <div class="row">
+        <div class="col col-md-4 col-12">
+            <span class="text-muted">Status</span>
+            <p>
+                {{ if eq .Status "running" }}
+                <span class="badge text-bg-success">Running</span>
+                {{ else }}
+                <span class="badge text-bg-danger">Stopped</span>
+                {{ end }}
+            </p>
+        </div>
+        <div class="col col-md-4 col-12">
+            <span class="text-muted">Name</span>
+            <p class="">{{ .Name }}</p>
+        </div>
+        <div class="col col-md-4 col-12">
+            <span class="text-muted">CPU Cores</span>
+            <p class="">{{ .Cores }}</p>
+        </div>
+        <div class="col col-md-4 col-12">
+            <span class="text-muted">Disk</span>
+            <p class="">{{ .MaxDisk }} GB</p>
+        </div>
+        <div class="col col-md-4 col-12">
+            <span class="text-muted">Memory</span>
+            <p class="">{{ .MaxMemory }} MB</p>
+        </div>
+        <div class="col col-md-4 col-12">
+            <span class="text-muted">IPv4</span>
+            <p class="">{{ .IPv4 }}</p>
+        </div>
+        <div class="col col-md-4 col-12">
+            <span class="text-muted">IPv4 Gateway</span>
+            <p class="">{{ .IPv4Gateway }}</p>
+        </div>
+        <div class="col col-md-4 col-12">
+            <span class="text-muted">SSH Username</span>
+            <p class="">{{ .Username }}</p>
+        </div>
+        <div class="col col-md-4 col-12">
+            <span class="text-muted">SSH Password</span>
+            <p class=""><button class="btn btn-sm"><i class="bi bi-copy"></i></button></p>
+        </div>
+    </div>
+    <div class="mb-3">
+        <span class="text-muted">Bandwidth used (256 GB / 1024G GB)</span>
+        <div class="progress" role="progressbar">
+            <div class="progress-bar" style="width: 25%"></div>
+        </div>
+    </div>
 
-                        <div class="col-md-6">
-                            <!-- IP Address -->
-                            <div class="mb-4">
-                                <h5 class="text-muted mb-2">IP Address</h5>
-                                <p class="fs-5">
-                                    <i class="fas fa-network-wired me-2"></i>
-                                    {{ .IPv4Gateway }}
-                                </p>
-                            </div>
-
-                            <!-- IP Gateway -->
-                            <div class="mb-4">
-                                <h5 class="text-muted mb-2">IP Gateway</h5>
-                                <p class="fs-5">
-                                    <i class="fas fa-route me-2"></i>
-                                    {{ .IPv4 }}
-                                </p>
-                            </div>
-
-                            <!-- SSH Username -->
-                            <div class="mb-4">
-                                <h5 class="text-muted mb-2">SSH Username</h5>
-                                <p class="fs-5">
-                                    <i class="fas fa-user me-2"></i>
-                                    {{ .Username }}
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Max Disk -->
-                    <div class="mt-2">
-                        <h5 class="text-muted mb-2">Max Disk</h5>
-                        <div class="progress" style="height: 25px;">
-                            <div class="progress-bar" role="progressbar" style="width: 75%;">
-                                {{ .MaxDisk }} GB
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+    <div class="mb-3">
+        <span class="text-muted">Reinstall OS</span>
+        <div class="input-group mb-3">
+            <select class="form-select">
+                <option selected></option>
+                <option value="1">One</option>
+                <option value="2">Two</option>
+                <option value="3">Three</option>
+            </select>
+            <button class="btn btn-outline-primary" type="button" onclick="confirm('confirm')">Button</button>
         </div>
     </div>
 </div>
 
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/js/bootstrap.bundle.min.js"
+        integrity="sha512-7Pi/otdlbbCR+LnW+F7PwFcSDJOuUJB3OxtEHbg4vSMvzvJjde4Po1v4BR9Gdc9aXNUNFVUY+SK51wWT8WF0Gg=="
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
 </body>
+
 </html>

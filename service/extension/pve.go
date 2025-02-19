@@ -241,6 +241,11 @@ func (p *PVE) createService(serviceId int32) error {
 		return fmt.Errorf("pve: %w", err)
 	}
 
+	err = p.waitForTask(baseUrl, node, ticket, resp.Data)
+	if err != nil {
+		return fmt.Errorf("pve: %w", err)
+	}
+
 	// vm config
 	resp = pveResp[string]{}
 	form = url.Values{}
@@ -256,12 +261,22 @@ func (p *PVE) createService(serviceId int32) error {
 		return fmt.Errorf("pve: %w", err)
 	}
 
+	err = p.waitForTask(baseUrl, node, ticket, resp.Data)
+	if err != nil {
+		return fmt.Errorf("pve: %w", err)
+	}
+
 	// resize disk
 	resp = pveResp[string]{}
 	form = url.Values{}
 	form.Set("disk", "scsi0")
 	form.Set("size", disk+"G")
 	err = p.apiAction("PUT", fmt.Sprintf("%s/nodes/%s/qemu/%d/resize", baseUrl, node, vmid), form, &resp, csrf, ticket)
+	if err != nil {
+		return fmt.Errorf("pve: %w", err)
+	}
+
+	err = p.waitForTask(baseUrl, node, ticket, resp.Data)
 	if err != nil {
 		return fmt.Errorf("pve: %w", err)
 	}
@@ -300,6 +315,40 @@ func (p *PVE) createService(serviceId int32) error {
 	return nil
 }
 
+// waitForTask waits for the task to finish. Timeout if task is not finished within 50 seconds.
+// waitForTask returns non-nil error if the task fails or timeouts.
+func (p *PVE) waitForTask(baseUrl string, node string, ticket string, taskId string) error {
+	slog.Debug("pve wait for task", "task id", taskId, "base url", baseUrl, "node", node)
+
+	for range 10 {
+		resp := pveResp[struct {
+			Status     string  `json:"status"`
+			Id         string  `json:"id"`
+			ExitStatus *string `json:"exitstatus"`
+			Type       string  `json:"type"`
+		}]{}
+
+		err := p.apiGet(fmt.Sprintf("%s/nodes/%s/tasks/%s/status", baseUrl, node, taskId), &resp, ticket)
+		if err != nil {
+			return fmt.Errorf("wait for task: %w", err)
+		}
+
+		slog.Debug("pve wait for task", "task id", taskId, "base url", baseUrl, "node", node, "type", resp.Data.Type, "status", resp.Data.Status, "exit status", resp.Data.ExitStatus)
+
+		if resp.Data.Status == "stopped" {
+			// https://github.com/proxmox/pve-common/blob/ad169fbd08343a86e43275ef93f94a4d00d44932/src/PVE/Tools.pm#L1256
+			if resp.Data.ExitStatus == nil || *resp.Data.ExitStatus == "OK" || strings.HasPrefix(*resp.Data.ExitStatus, "WARNING") {
+				return nil
+			}
+			return fmt.Errorf("task %s failed: %s", taskId, *resp.Data.ExitStatus)
+		}
+
+		time.Sleep(5 * time.Second)
+	}
+
+	return fmt.Errorf("task timeout: %s", taskId)
+}
+
 // getServiceSettings returns the service and server settings for the service id.
 func (p *PVE) getServiceSettings(serviceId int32) (types.ServiceSettings, types.ServerSettings, error) {
 	s, err := database.Q.FindServiceById(context.Background(), serviceId)
@@ -321,22 +370,176 @@ func (p *PVE) getServiceSettings(serviceId int32) (types.ServiceSettings, types.
 	return s.Settings, ss.Settings, nil
 }
 
+func (p *PVE) qemuPoweroff(serviceId int32, force bool) error {
+	_, serverSettings, err := p.getServiceSettings(serviceId)
+	if err != nil {
+		return fmt.Errorf("pve: poweroff: %w", err)
+	}
+
+	address := serverSettings["address"]
+	port := serverSettings["port"]
+	username := serverSettings["username"]
+	password := serverSettings["password"]
+	node := serverSettings["node"]
+	baseUrl := fmt.Sprintf("https://%s:%s/api2/json", address, port)
+
+	csrf, ticket, err := p.pveAuth(baseUrl, username, password)
+	if err != nil {
+		return fmt.Errorf("pve: %w", err)
+	}
+
+	vmid := int(10000 + serviceId)
+
+	body := url.Values{}
+	if force {
+		body.Set("forceStop", "1")
+	} else {
+		body.Set("forceStop", "0")
+	}
+	body.Set("timeout", "30")
+
+	resp := pveResp[string]{}
+	err = p.apiAction("POST", fmt.Sprintf("%s/nodes/%s/qemu/%d/status/shutdown", baseUrl, node, vmid), body, &resp, csrf, ticket)
+	if err != nil {
+		return fmt.Errorf("pve: %w", err)
+	}
+
+	err = p.waitForTask(baseUrl, node, ticket, resp.Data)
+	if err != nil {
+		return fmt.Errorf("pve: %w", err)
+	}
+
+	return nil
+}
+
+func (p *PVE) qemuStart(serviceId int32) error {
+	_, serverSettings, err := p.getServiceSettings(serviceId)
+	if err != nil {
+		return fmt.Errorf("pve: poweroff: %w", err)
+	}
+
+	address := serverSettings["address"]
+	port := serverSettings["port"]
+	username := serverSettings["username"]
+	password := serverSettings["password"]
+	node := serverSettings["node"]
+	baseUrl := fmt.Sprintf("https://%s:%s/api2/json", address, port)
+
+	csrf, ticket, err := p.pveAuth(baseUrl, username, password)
+	if err != nil {
+		return fmt.Errorf("pve: %w", err)
+	}
+
+	vmid := int(10000 + serviceId)
+
+	body := url.Values{}
+	body.Set("timeout", "30")
+
+	resp := pveResp[string]{}
+	err = p.apiAction("POST", fmt.Sprintf("%s/nodes/%s/qemu/%d/status/start", baseUrl, node, vmid), body, &resp, csrf, ticket)
+	if err != nil {
+		return fmt.Errorf("pve: %w", err)
+	}
+
+	err = p.waitForTask(baseUrl, node, ticket, resp.Data)
+	if err != nil {
+		return fmt.Errorf("pve: %w", err)
+	}
+
+	return nil
+}
+
+func (p *PVE) qemuReboot(serviceId int32) error {
+	_, serverSettings, err := p.getServiceSettings(serviceId)
+	if err != nil {
+		return fmt.Errorf("pve: poweroff: %w", err)
+	}
+
+	address := serverSettings["address"]
+	port := serverSettings["port"]
+	username := serverSettings["username"]
+	password := serverSettings["password"]
+	node := serverSettings["node"]
+	baseUrl := fmt.Sprintf("https://%s:%s/api2/json", address, port)
+
+	csrf, ticket, err := p.pveAuth(baseUrl, username, password)
+	if err != nil {
+		return fmt.Errorf("pve: %w", err)
+	}
+
+	vmid := int(10000 + serviceId)
+
+	body := url.Values{}
+	body.Set("timeout", "30")
+
+	resp := pveResp[string]{}
+	err = p.apiAction("POST", fmt.Sprintf("%s/nodes/%s/qemu/%d/status/reboot", baseUrl, node, vmid), body, &resp, csrf, ticket)
+	if err != nil {
+		return fmt.Errorf("pve: %w", err)
+	}
+
+	err = p.waitForTask(baseUrl, node, ticket, resp.Data)
+	if err != nil {
+		return fmt.Errorf("pve: %w", err)
+	}
+
+	return nil
+}
+
+func (p *PVE) qemuDelete(serviceId int32) error {
+	_, serverSettings, err := p.getServiceSettings(serviceId)
+	if err != nil {
+		return fmt.Errorf("pve: poweroff: %w", err)
+	}
+
+	address := serverSettings["address"]
+	port := serverSettings["port"]
+	username := serverSettings["username"]
+	password := serverSettings["password"]
+	node := serverSettings["node"]
+	baseUrl := fmt.Sprintf("https://%s:%s/api2/json", address, port)
+
+	csrf, ticket, err := p.pveAuth(baseUrl, username, password)
+	if err != nil {
+		return fmt.Errorf("pve: %w", err)
+	}
+
+	vmid := int(10000 + serviceId)
+
+	resp := pveResp[string]{}
+	err = p.apiAction("DELETE", fmt.Sprintf("%s/nodes/%s/qemu/%d", baseUrl, node, vmid), url.Values{}, &resp, csrf, ticket)
+	if err != nil {
+		return fmt.Errorf("pve: %w", err)
+	}
+
+	err = p.waitForTask(baseUrl, node, ticket, resp.Data)
+	if err != nil {
+		return fmt.Errorf("pve: %w", err)
+	}
+
+	return nil
+}
+
 func (p *PVE) Action(serviceId int32, action string) error {
 	slog.Info("pve action", "service id", serviceId, "action", action)
 
 	switch action {
 	case "poweroff":
-		return nil
+		return p.qemuPoweroff(serviceId, false)
+	case "force_poweroff":
+		return p.qemuPoweroff(serviceId, true)
 	case "reboot":
-		return nil
+		return p.qemuReboot(serviceId)
 	case "suspend":
-		return nil
+		return p.qemuPoweroff(serviceId, true)
 	case "unsuspend":
 		return nil
 	case "terminate":
-		return nil
+		return p.qemuDelete(serviceId)
 	case "create":
 		return p.createService(serviceId)
+	case "boot":
+		return p.qemuStart(serviceId)
 	}
 
 	return fmt.Errorf("invalid action \"%s\"", action)
@@ -348,7 +551,7 @@ func (p *PVE) ClientActions(serviceId int32) ([]string, error) {
 		return nil, fmt.Errorf("pve: db: %w", err)
 	}
 	if _, ok := s.Settings["server"]; ok {
-		return []string{"poweroff", "reboot"}, nil
+		return []string{"poweroff", "reboot", "force_poweroff", "boot"}, nil
 	}
 	return []string{}, nil
 
@@ -360,7 +563,7 @@ func (p *PVE) AdminActions(serviceId int32) ([]string, error) {
 		return nil, fmt.Errorf("pve: db: %w", err)
 	}
 	if _, ok := s.Settings["server"]; ok {
-		return []string{"poweroff", "reboot", "terminate", "suspend", "unsuspend", "create"}, nil
+		return []string{"poweroff", "reboot", "terminate", "suspend", "unsuspend", "create", "force_poweroff", "boot"}, nil
 	}
 	return []string{"create"}, nil
 }
@@ -445,7 +648,7 @@ func (p *PVE) AdminPage(w http.ResponseWriter, serviceId int32) error {
 			io.WriteString(w, "<span style=\"font-family: sans-serif\">This service is not created</span>")
 			return nil
 		}
-		io.WriteString(w, "<span style=\"font-family: sans-serif\">Something went wrong</span>")
+		io.WriteString(w, "<span style=\"font-family: sans-serif\">Something went wrong. Please check server log.</span>")
 		return err
 	}
 
