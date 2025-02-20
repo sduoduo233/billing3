@@ -21,6 +21,9 @@ INSERT INTO users (email, name, role, password, address, city, state, country, z
 -- name: DeleteUser :exec
 DELETE FROM users WHERE id = $1;
 
+-- name: UpdateUserProfile :exec
+UPDATE users SET name = $1, address = $2, city = $3, state = $4, country = $5, zip_code = $6 WHERE id = $7;
+
 -- name: UpdateUser :exec
 UPDATE users SET email = $2, name = $3, role = $4, address = $5, city = $6, state = $7, country = $8, zip_code = $9 WHERE id = $1;
 

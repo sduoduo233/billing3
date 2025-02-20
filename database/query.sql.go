@@ -1860,3 +1860,30 @@ func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPassword
 	_, err := q.db.Exec(ctx, updateUserPassword, arg.ID, arg.Password)
 	return err
 }
+
+const updateUserProfile = `-- name: UpdateUserProfile :exec
+UPDATE users SET name = $1, address = $2, city = $3, state = $4, country = $5, zip_code = $6 WHERE id = $7
+`
+
+type UpdateUserProfileParams struct {
+	Name    string      `json:"name"`
+	Address pgtype.Text `json:"address"`
+	City    pgtype.Text `json:"city"`
+	State   pgtype.Text `json:"state"`
+	Country pgtype.Text `json:"country"`
+	ZipCode pgtype.Text `json:"zip_code"`
+	ID      int32       `json:"id"`
+}
+
+func (q *Queries) UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) error {
+	_, err := q.db.Exec(ctx, updateUserProfile,
+		arg.Name,
+		arg.Address,
+		arg.City,
+		arg.State,
+		arg.Country,
+		arg.ZipCode,
+		arg.ID,
+	)
+	return err
+}
