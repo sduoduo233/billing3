@@ -7,13 +7,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/shopspring/decimal"
 	"log/slog"
 	"math"
 	"slices"
 	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/shopspring/decimal"
 )
 
 const (
@@ -246,7 +247,7 @@ func OnInvoicePaid(invoiceId int32) {
 				continue
 			}
 
-			// change status to PAID
+			// change status to PENDING
 			if s.Status == ServiceUnpaid {
 				slog.Info("service pending", "service_id", itemId)
 				err = database.Q.UpdateServiceStatus(ctx, database.UpdateServiceStatusParams{

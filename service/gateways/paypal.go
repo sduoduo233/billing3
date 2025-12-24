@@ -7,8 +7,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/go-chi/chi/v5"
-	"github.com/shopspring/decimal"
 	"html/template"
 	"io"
 	"log/slog"
@@ -16,6 +14,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/shopspring/decimal"
 )
 
 type Paypal struct {
@@ -32,6 +33,14 @@ func (p *Paypal) Settings() []GatewaySetting {
 }
 
 func (p *Paypal) Pay(invoice *database.Invoice, user *database.User, total decimal.Decimal) (string, error) {
+
+	if total.LessThanOrEqual(decimal.Zero) {
+		err := service.InvoiceAddPayment(context.Background(), int32(invoice.ID), "Paypal payment (Free)", decimal.Zero, "", "Paypal")
+		if err != nil {
+			return "", fmt.Errorf("paypal free: invoice add payment: %w", err)
+		}
+		return "/dashboard/invoice/" + strconv.Itoa(int(invoice.ID)), nil
+	}
 
 	settings, err := getSettings(context.Background(), "Paypal")
 	if err != nil {

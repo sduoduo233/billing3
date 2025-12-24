@@ -30,6 +30,9 @@ UPDATE users SET email = $2, name = $3, role = $4, address = $5, city = $6, stat
 -- name: UpdateUserPassword :exec
 UPDATE users SET password = $2 WHERE id = $1;
 
+-- name: CountUsers :one
+SELECT COUNT(id) FROM users;
+
 -- SESSIONS --
 
 -- name: FindSessionByToken :one
