@@ -113,6 +113,7 @@ func Route(r *chi.Mux) {
 		r.Get("/service/{id}/action", serviceClientActions)
 		r.Get("/service/{id}/info", serviceInfoPage)
 		r.Post("/service/{id}/action", servicePerformAction)
+		r.Get("/service/{id}/jobs", serviceGetJobs)
 	})
 
 	for name, gateway := range gateways.Gateways {

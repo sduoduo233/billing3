@@ -6,14 +6,17 @@ import (
 	"billing3/database/types"
 	"billing3/service"
 	"billing3/service/extension"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
 	"slices"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/riverqueue/river"
 	"github.com/shopspring/decimal"
 )
 
@@ -226,4 +229,75 @@ func servicePerformAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeResp(w, http.StatusOK, D{})
+}
+
+func serviceGetJobs(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(chi.URLParam(r, "id"))
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	user := middlewares.MustGetUser(r)
+
+	s, err := database.Q.FindServiceById(r.Context(), int32(id))
+	if err != nil {
+		slog.Error("get service", "err", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	if s.UserID != user.ID {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+
+	if s.Status != service.ServiceActive {
+		writeError(w, http.StatusBadRequest, "service is not active")
+		return
+	}
+
+	params := river.NewJobListParams().
+		First(10).
+		OrderBy(river.JobListOrderByID, river.SortOrderDesc).
+		Kinds("extension_action").
+		Metadata("{\"service_id\": " + strconv.Itoa(id) + "}")
+
+	jobsListResp, err := database.River.JobList(r.Context(), params)
+	if err != nil {
+		slog.Error("admin get service jobs", "err", err)
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	type jobRespStruct struct {
+		ID          int64      `json:"id"`
+		Kind        string     `json:"kind"`
+		State       string     `json:"state"`
+		ScheduledAt time.Time  `json:"scheduled_at"`
+		FinalizedAt *time.Time `json:"finalized_at"`
+		Action      string     `json:"action"`
+	}
+
+	type arg struct {
+		Action string `json:"action"`
+	}
+
+	var jobsResp = make([]jobRespStruct, 0)
+	for _, job := range jobsListResp.Jobs {
+		jobsResp = append(jobsResp, jobRespStruct{
+			ID:          job.ID,
+			Kind:        job.Kind,
+			State:       string(job.State),
+			ScheduledAt: job.ScheduledAt,
+			FinalizedAt: job.FinalizedAt,
+		})
+		var a arg
+		err := json.Unmarshal(job.EncodedArgs, &a)
+		if err == nil {
+			jobsResp[len(jobsResp)-1].Action = a.Action
+		}
+	}
+
+	writeResp(w, http.StatusOK, D{"jobs": jobsResp})
 }
