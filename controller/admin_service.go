@@ -389,10 +389,10 @@ func adminServiceGetJobs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	params := river.NewJobListParams()
-	params.OrderBy(river.JobListOrderByID, river.SortOrderDesc)
-	params.Kinds("extension_action")
-	params.Metadata("{\"service_id\": " + strconv.Itoa(id) + "}")
+	params := river.NewJobListParams().
+		OrderBy(river.JobListOrderByID, river.SortOrderDesc).
+		Kinds("extension_action").
+		Metadata("{\"service_id\": " + strconv.Itoa(id) + "}")
 
 	jobsListResp, err := database.River.JobList(r.Context(), params)
 	if err != nil {
@@ -412,7 +412,7 @@ func adminServiceGetJobs(w http.ResponseWriter, r *http.Request) {
 		Error       string     `json:"error"`
 	}
 
-	var jobsResp []jobRespStruct
+	var jobsResp = make([]jobRespStruct, 0)
 	for _, job := range jobsListResp.Jobs {
 		jobsResp = append(jobsResp, jobRespStruct{
 			ID:          job.ID,

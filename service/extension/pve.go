@@ -163,7 +163,8 @@ func (p *PVE) createService(serviceId int32) error {
 	servers := s.Settings["servers"]
 	vmType := s.Settings["vm_type"]
 	vmPassword := s.Settings["vm_password"]
-	kvmTemplateVmid := s.Settings["kvm_template_vmid"]
+	kvmTemplateVmid, _ := s.Settings["kvm_template_vmid"]
+	lxcTemplate, _ := s.Settings["lxc_template"]
 
 	serverIds := make([]int, 0)
 	for _, s := range strings.Split(servers, ",") {
@@ -181,9 +182,6 @@ func (p *PVE) createService(serviceId int32) error {
 	// choose a random pve server
 	serverId, _ := utils.RandomChoose(serverIds)
 
-	// lock the server
-	// TODO:
-
 	// pve server settings
 	server, err := database.Q.FindServerById(ctx, int32(serverId))
 	if err != nil {
@@ -192,12 +190,13 @@ func (p *PVE) createService(serviceId int32) error {
 
 	address := server.Settings["address"]
 	port := server.Settings["port"]
-	username := server.Settings["Username"]
+	username := server.Settings["username"]
 	password := server.Settings["password"]
 	node := server.Settings["node"]
 	ips := server.Settings["ips"]
 	gateway := server.Settings["gateway"]
 	baseUrl := fmt.Sprintf("https://%s:%s/api2/json", address, port)
+	bridge := server.Settings["bridge"]
 
 	// choose an IP address
 	unusedIps := utils.Filter(strings.Split(ips, "\n"), func(ip string) bool {
@@ -220,55 +219,101 @@ func (p *PVE) createService(serviceId int32) error {
 	// vmid
 	vmid := int(10000 + serviceId)
 
-	// clone vm
-	resp := pveResp[string]{}
-	form := url.Values{}
-	form.Set("newid", strconv.Itoa(vmid))
-	form.Set("full", "1")
-	form.Set("name", fmt.Sprintf("service%d", serviceId))
-	err = p.apiAction("POST", fmt.Sprintf("%s/nodes/%s/qemu/%s/clone", baseUrl, node, kvmTemplateVmid), form, &resp, csrf, ticket)
-	if err != nil {
-		return fmt.Errorf("pve: %w", err)
-	}
+	switch vmType {
+	case "kvm":
 
-	err = p.waitForTask(baseUrl, node, ticket, resp.Data)
-	if err != nil {
-		return fmt.Errorf("pve: %w", err)
-	}
+		// kvm clone
 
-	// vm config
-	resp = pveResp[string]{}
-	form = url.Values{}
-	form.Set("cipassword", vmPassword)
-	form.Set("ciuser", "vmuser")
-	form.Set("cores", cpu)
-	form.Set("memory", memory)
-	form.Set("ipconfig0", fmt.Sprintf("gw=%s,ip=%s", gateway, ip))
-	form.Set("nameserver", "8.8.8.8")
-	form.Set("searchdomain", ".")
-	err = p.apiAction("POST", fmt.Sprintf("%s/nodes/%s/qemu/%d/config", baseUrl, node, vmid), form, &resp, csrf, ticket)
-	if err != nil {
-		return fmt.Errorf("pve: %w", err)
-	}
+		if kvmTemplateVmid == "" {
+			return fmt.Errorf("pve: kvm_template_vmid is required for kvm vm_type")
+		}
 
-	err = p.waitForTask(baseUrl, node, ticket, resp.Data)
-	if err != nil {
-		return fmt.Errorf("pve: %w", err)
-	}
+		resp := pveResp[string]{}
+		form := url.Values{}
+		form.Set("newid", strconv.Itoa(vmid))
+		form.Set("full", "1")
+		form.Set("name", fmt.Sprintf("service%d", serviceId))
+		err = p.apiAction("POST", fmt.Sprintf("%s/nodes/%s/qemu/%s/clone", baseUrl, node, kvmTemplateVmid), form, &resp, csrf, ticket)
+		if err != nil {
+			return fmt.Errorf("pve: %w", err)
+		}
 
-	// resize disk
-	resp = pveResp[string]{}
-	form = url.Values{}
-	form.Set("disk", "scsi0")
-	form.Set("size", disk+"G")
-	err = p.apiAction("PUT", fmt.Sprintf("%s/nodes/%s/qemu/%d/resize", baseUrl, node, vmid), form, &resp, csrf, ticket)
-	if err != nil {
-		return fmt.Errorf("pve: %w", err)
-	}
+		err = p.waitForTask(baseUrl, node, ticket, resp.Data)
+		if err != nil {
+			return fmt.Errorf("pve: %w", err)
+		}
 
-	err = p.waitForTask(baseUrl, node, ticket, resp.Data)
-	if err != nil {
-		return fmt.Errorf("pve: %w", err)
+		// vm config
+		resp = pveResp[string]{}
+		form = url.Values{}
+		form.Set("cipassword", vmPassword)
+		form.Set("ciuser", "vmuser")
+		form.Set("cores", cpu)
+		form.Set("memory", memory)
+		form.Set("ipconfig0", fmt.Sprintf("gw=%s,ip=%s", gateway, ip))
+		form.Set("nameserver", "8.8.8.8")
+		form.Set("searchdomain", ".")
+		err = p.apiAction("POST", fmt.Sprintf("%s/nodes/%s/qemu/%d/config", baseUrl, node, vmid), form, &resp, csrf, ticket)
+		if err != nil {
+			return fmt.Errorf("pve: %w", err)
+		}
+
+		err = p.waitForTask(baseUrl, node, ticket, resp.Data)
+		if err != nil {
+			return fmt.Errorf("pve: %w", err)
+		}
+
+		// resize disk
+		resp = pveResp[string]{}
+		form = url.Values{}
+		form.Set("disk", "scsi0")
+		form.Set("size", disk+"G")
+		err = p.apiAction("PUT", fmt.Sprintf("%s/nodes/%s/qemu/%d/resize", baseUrl, node, vmid), form, &resp, csrf, ticket)
+		if err != nil {
+			return fmt.Errorf("pve: %w", err)
+		}
+
+		err = p.waitForTask(baseUrl, node, ticket, resp.Data)
+		if err != nil {
+			return fmt.Errorf("pve: %w", err)
+		}
+
+	case "lxc":
+
+		// create lxc
+
+		if lxcTemplate == "" {
+			return fmt.Errorf("pve: lxc_template is required for lxc vm_type")
+		}
+
+		form := url.Values{}
+		form.Set("vmid", strconv.Itoa(vmid))
+		form.Set("unprivileged", "1")
+		form.Set("features", "nesting=1")
+		form.Set("password", vmPassword)
+		form.Set("ssh-public-keys", "")
+		form.Set("ostemplate", lxcTemplate)
+		form.Set("rootfs", fmt.Sprintf("local:%s", disk))
+		form.Set("cores", cpu)
+		form.Set("memory", memory)
+		form.Set("swap", "0")
+		form.Set("net0", fmt.Sprintf("name=eth0,bridge=%s,firewall=1,ip=%s", bridge, ip))
+		form.Set("nameserver", "8.8.8.8")
+
+		lxcResp := pveResp[string]{}
+
+		err = p.apiAction("POST", fmt.Sprintf("%s/nodes/%s/lxc", baseUrl, node), form, &lxcResp, csrf, ticket)
+		if err != nil {
+			return fmt.Errorf("pve: lxc create: %w", err)
+		}
+
+		err = p.waitForTask(baseUrl, node, ticket, lxcResp.Data)
+		if err != nil {
+			return fmt.Errorf("pve: wait lxc create: %w", err)
+		}
+
+	default:
+		return fmt.Errorf("bad vm_type: %s", vmType)
 	}
 
 	// save server id
@@ -360,10 +405,15 @@ func (p *PVE) getServiceSettings(serviceId int32) (types.ServiceSettings, types.
 	return s.Settings, ss.Settings, nil
 }
 
-func (p *PVE) qemuPoweroff(serviceId int32, force bool) error {
+func (p *PVE) qemuPoweroff(serviceId int32, force bool, lxc bool) error {
 	_, serverSettings, err := p.getServiceSettings(serviceId)
 	if err != nil {
 		return fmt.Errorf("pve: poweroff: %w", err)
+	}
+
+	vmType := "qemu"
+	if lxc {
+		vmType = "lxc"
 	}
 
 	address := serverSettings["address"]
@@ -386,10 +436,12 @@ func (p *PVE) qemuPoweroff(serviceId int32, force bool) error {
 	} else {
 		body.Set("forceStop", "0")
 	}
-	body.Set("timeout", "30")
+	if !lxc {
+		body.Set("timeout", "30")
+	}
 
 	resp := pveResp[string]{}
-	err = p.apiAction("POST", fmt.Sprintf("%s/nodes/%s/qemu/%d/status/shutdown", baseUrl, node, vmid), body, &resp, csrf, ticket)
+	err = p.apiAction("POST", fmt.Sprintf("%s/nodes/%s/%s/%d/status/shutdown", baseUrl, node, vmType, vmid), body, &resp, csrf, ticket)
 	if err != nil {
 		return fmt.Errorf("pve: %w", err)
 	}
@@ -402,10 +454,59 @@ func (p *PVE) qemuPoweroff(serviceId int32, force bool) error {
 	return nil
 }
 
-func (p *PVE) qemuStart(serviceId int32) error {
+func (p *PVE) qemuStart(serviceId int32, lxc bool) error {
 	_, serverSettings, err := p.getServiceSettings(serviceId)
 	if err != nil {
 		return fmt.Errorf("pve: poweroff: %w", err)
+	}
+
+	vmType := "qemu"
+	if lxc {
+		vmType = "lxc"
+	}
+
+	address := serverSettings["address"]
+	port := serverSettings["port"]
+	username := serverSettings["username"]
+	password := serverSettings["password"]
+	node := serverSettings["node"]
+	baseUrl := fmt.Sprintf("https://%s:%s/api2/json", address, port)
+
+	csrf, ticket, err := p.pveAuth(baseUrl, username, password)
+	if err != nil {
+		return fmt.Errorf("pve: %w", err)
+	}
+
+	vmid := int(10000 + serviceId)
+
+	body := url.Values{}
+	if !lxc {
+		body.Set("timeout", "30")
+	}
+
+	resp := pveResp[string]{}
+	err = p.apiAction("POST", fmt.Sprintf("%s/nodes/%s/%s/%d/status/start", baseUrl, node, vmType, vmid), body, &resp, csrf, ticket)
+	if err != nil {
+		return fmt.Errorf("pve: %w", err)
+	}
+
+	err = p.waitForTask(baseUrl, node, ticket, resp.Data)
+	if err != nil {
+		return fmt.Errorf("pve: %w", err)
+	}
+
+	return nil
+}
+
+func (p *PVE) qemuReboot(serviceId int32, lxc bool) error {
+	_, serverSettings, err := p.getServiceSettings(serviceId)
+	if err != nil {
+		return fmt.Errorf("pve: poweroff: %w", err)
+	}
+
+	vmType := "qemu"
+	if lxc {
+		vmType = "lxc"
 	}
 
 	address := serverSettings["address"]
@@ -426,7 +527,7 @@ func (p *PVE) qemuStart(serviceId int32) error {
 	body.Set("timeout", "30")
 
 	resp := pveResp[string]{}
-	err = p.apiAction("POST", fmt.Sprintf("%s/nodes/%s/qemu/%d/status/start", baseUrl, node, vmid), body, &resp, csrf, ticket)
+	err = p.apiAction("POST", fmt.Sprintf("%s/nodes/%s/%s/%d/status/reboot", baseUrl, node, vmType, vmid), body, &resp, csrf, ticket)
 	if err != nil {
 		return fmt.Errorf("pve: %w", err)
 	}
@@ -439,47 +540,15 @@ func (p *PVE) qemuStart(serviceId int32) error {
 	return nil
 }
 
-func (p *PVE) qemuReboot(serviceId int32) error {
+func (p *PVE) qemuDelete(serviceId int32, lxc bool) error {
 	_, serverSettings, err := p.getServiceSettings(serviceId)
 	if err != nil {
 		return fmt.Errorf("pve: poweroff: %w", err)
 	}
 
-	address := serverSettings["address"]
-	port := serverSettings["port"]
-	username := serverSettings["username"]
-	password := serverSettings["password"]
-	node := serverSettings["node"]
-	baseUrl := fmt.Sprintf("https://%s:%s/api2/json", address, port)
-
-	csrf, ticket, err := p.pveAuth(baseUrl, username, password)
-	if err != nil {
-		return fmt.Errorf("pve: %w", err)
-	}
-
-	vmid := int(10000 + serviceId)
-
-	body := url.Values{}
-	body.Set("timeout", "30")
-
-	resp := pveResp[string]{}
-	err = p.apiAction("POST", fmt.Sprintf("%s/nodes/%s/qemu/%d/status/reboot", baseUrl, node, vmid), body, &resp, csrf, ticket)
-	if err != nil {
-		return fmt.Errorf("pve: %w", err)
-	}
-
-	err = p.waitForTask(baseUrl, node, ticket, resp.Data)
-	if err != nil {
-		return fmt.Errorf("pve: %w", err)
-	}
-
-	return nil
-}
-
-func (p *PVE) qemuDelete(serviceId int32) error {
-	_, serverSettings, err := p.getServiceSettings(serviceId)
-	if err != nil {
-		return fmt.Errorf("pve: poweroff: %w", err)
+	vmType := "qemu"
+	if lxc {
+		vmType = "lxc"
 	}
 
 	address := serverSettings["address"]
@@ -497,7 +566,7 @@ func (p *PVE) qemuDelete(serviceId int32) error {
 	vmid := int(10000 + serviceId)
 
 	resp := pveResp[string]{}
-	err = p.apiAction("DELETE", fmt.Sprintf("%s/nodes/%s/qemu/%d", baseUrl, node, vmid), url.Values{}, &resp, csrf, ticket)
+	err = p.apiAction("DELETE", fmt.Sprintf("%s/nodes/%s/%s/%d", baseUrl, node, vmType, vmid), url.Values{}, &resp, csrf, ticket)
 	if err != nil {
 		return fmt.Errorf("pve: %w", err)
 	}
@@ -513,23 +582,33 @@ func (p *PVE) qemuDelete(serviceId int32) error {
 func (p *PVE) Action(serviceId int32, action string) error {
 	slog.Info("pve action", "service id", serviceId, "action", action)
 
+	serviceSettings, _, err := p.getServiceSettings(serviceId)
+	if err != nil {
+		return fmt.Errorf("pve: get %w", err)
+	}
+
+	vmType := "qemu"
+	if _, ok := serviceSettings["vm_type"]; ok {
+		vmType = "lxc"
+	}
+
 	switch action {
 	case "poweroff":
-		return p.qemuPoweroff(serviceId, false)
+		return p.qemuPoweroff(serviceId, false, vmType == "lxc")
 	case "force_poweroff":
-		return p.qemuPoweroff(serviceId, true)
+		return p.qemuPoweroff(serviceId, true, vmType == "lxc")
 	case "reboot":
-		return p.qemuReboot(serviceId)
+		return p.qemuReboot(serviceId, vmType == "lxc")
 	case "suspend":
-		return p.qemuPoweroff(serviceId, true)
+		return p.qemuPoweroff(serviceId, true, vmType == "lxc")
 	case "unsuspend":
 		return nil
 	case "terminate":
-		return p.qemuDelete(serviceId)
+		return p.qemuDelete(serviceId, vmType == "lxc")
 	case "create":
 		return p.createService(serviceId)
 	case "boot":
-		return p.qemuStart(serviceId)
+		return p.qemuStart(serviceId, vmType == "lxc")
 	}
 
 	return fmt.Errorf("invalid action \"%s\"", action)
@@ -566,10 +645,12 @@ func (p *PVE) Route(r chi.Router) error {
 }
 
 func (p *PVE) getQemuVmInfo(serviceId int32) (*pveVmInfo, error) {
-	_, serverSettings, err := p.getServiceSettings(serviceId)
+	serviceSettings, serverSettings, err := p.getServiceSettings(serviceId)
 	if err != nil {
 		return nil, fmt.Errorf("pve: %w", err)
 	}
+
+	vmType := serviceSettings["vm_type"]
 
 	vmInfo := pveVmInfo{}
 
@@ -593,7 +674,7 @@ func (p *PVE) getQemuVmInfo(serviceId int32) (*pveVmInfo, error) {
 		MaxMem  int    `json:"maxmem"`
 		Name    string `json:"Name"`
 	}]{}
-	err = p.apiGet(fmt.Sprintf("%s/nodes/%s/qemu/%d/status/current", baseUrl, node, vmid), &respStatus, ticket)
+	err = p.apiGet(fmt.Sprintf("%s/nodes/%s/%s/%d/status/current", baseUrl, node, vmType, vmid), &respStatus, ticket)
 	if err != nil {
 		return nil, fmt.Errorf("pve: %w", err)
 	}
@@ -608,7 +689,7 @@ func (p *PVE) getQemuVmInfo(serviceId int32) (*pveVmInfo, error) {
 		IPConfig0 string `json:"ipconfig0"`
 		CiUser    string `json:"ciuser"`
 	}]{}
-	err = p.apiGet(fmt.Sprintf("%s/nodes/%s/qemu/%d/config", baseUrl, node, vmid), &respConfig, ticket)
+	err = p.apiGet(fmt.Sprintf("%s/nodes/%s/%s/%d/config", baseUrl, node, vmType, vmid), &respConfig, ticket)
 	if err != nil {
 		return nil, fmt.Errorf("pve: %w", err)
 	}
@@ -675,10 +756,11 @@ func (p *PVE) ProductSettings(inputs map[string]string) ([]ProductSetting, error
 	}
 
 	vmType, _ := inputs["vm_type"]
-	if vmType == "kvm" {
+	switch vmType {
+	case "kvm":
 		s = append(s, ProductSetting{Name: "kvm_template_vmid", DisplayName: "KVM Template VMID", Type: "string", Regex: "^\\d+$"})
-	} else if vmType == "lxc" {
-		s = append(s, ProductSetting{Name: "lxc_template", DisplayName: "LXC Template", Type: "string", Regex: "^.+$"})
+	case "lxc":
+		s = append(s, ProductSetting{Name: "lxc_template", Placeholder: "local:vztmpl/debian-13-standard_13.1-2_amd64.tar.zst", DisplayName: "LXC Template", Type: "string", Regex: "^.+$"})
 	}
 
 	return s, nil

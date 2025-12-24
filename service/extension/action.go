@@ -92,6 +92,7 @@ func DoActionAsync(ctx context.Context, ext string, serviceId int32, action stri
 		Extension: ext,
 	}, &river.InsertOpts{
 		MaxAttempts: 1,
+		Metadata:    []byte(fmt.Sprintf("{\"service_id\": %d}", serviceId)),
 	})
 	if err != nil {
 		return fmt.Errorf("insert job: %w", err)
