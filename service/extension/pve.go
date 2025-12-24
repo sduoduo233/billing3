@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -46,6 +47,7 @@ type pveVmInfo struct {
 	IPv4        string
 	IPv4Gateway string
 	Username    string
+	Password    string
 }
 
 // pveAuth returns CSRFPreventionToken and ticket
@@ -681,29 +683,53 @@ func (p *PVE) getQemuVmInfo(serviceId int32) (*pveVmInfo, error) {
 
 	vmInfo.Name = respStatus.Data.Name
 	vmInfo.Status = respStatus.Data.Status
-	vmInfo.MaxDisk = respStatus.Data.MaxDisk / 1024 / 1024 / 1024
+	vmInfo.MaxDisk = respStatus.Data.MaxDisk / 1000 / 1000 / 1000
 	vmInfo.MaxMemory = respStatus.Data.MaxMem / 1024 / 1024
 
 	respConfig := pveResp[struct {
 		Cores     int    `json:"cores"`
 		IPConfig0 string `json:"ipconfig0"`
 		CiUser    string `json:"ciuser"`
+		Net0      string `json:"net0"`
 	}]{}
 	err = p.apiGet(fmt.Sprintf("%s/nodes/%s/%s/%d/config", baseUrl, node, vmType, vmid), &respConfig, ticket)
 	if err != nil {
 		return nil, fmt.Errorf("pve: %w", err)
 	}
 
-	vmInfo.Cores = respConfig.Data.Cores
-	vmInfo.Username = respConfig.Data.CiUser
-	for _, s := range strings.Split(respConfig.Data.IPConfig0, ",") {
-		if strings.HasPrefix(s, "gw=") {
-			vmInfo.IPv4Gateway = strings.TrimPrefix(s, "gw=")
+	if vmType == "lxc" {
+		// lxc network config
+
+		matches := regexp.MustCompile(`gw=(\d+\.\d+\.\d+\.\d+)`).FindStringSubmatch(respConfig.Data.Net0)
+		if matches != nil {
+			vmInfo.IPv4Gateway = matches[1]
 		}
-		if strings.HasPrefix(s, "ip=") {
-			vmInfo.IPv4 = strings.TrimPrefix(s, "ip=")
+		matches = regexp.MustCompile(`ip=(\d+\.\d+\.\d+\.\d+/\d+)`).FindStringSubmatch(respConfig.Data.Net0)
+		if matches != nil {
+			vmInfo.IPv4 = matches[1]
+		}
+	} else {
+
+		// kvm network config
+
+		for _, s := range strings.Split(respConfig.Data.IPConfig0, ",") {
+			if strings.HasPrefix(s, "gw=") {
+				vmInfo.IPv4Gateway = strings.TrimPrefix(s, "gw=")
+			}
+			if strings.HasPrefix(s, "ip=") {
+				vmInfo.IPv4 = strings.TrimPrefix(s, "ip=")
+			}
 		}
 	}
+
+	vmInfo.Cores = respConfig.Data.Cores
+
+	if vmType == "lxc" {
+		vmInfo.Username = "root"
+	} else {
+		vmInfo.Username = respConfig.Data.CiUser
+	}
+	vmInfo.Password = serviceSettings["vm_password"]
 
 	return &vmInfo, nil
 }
