@@ -201,14 +201,24 @@ func (p *PVE) createService(serviceId int32) error {
 	bridge := server.Settings["bridge"]
 
 	// choose an IP address
-	unusedIps := utils.Filter(strings.Split(ips, "\n"), func(ip string) bool {
-		// ip with # prefix are currently in use
-		return len(ip) != 0 && ip[0] != '#'
-	})
-	if len(unusedIps) == 0 {
-		return fmt.Errorf("pve: server %d: no unused ips available", serverId)
+	var ip string
+	var ok bool
+
+	ip, ok = s.Settings["ip"]
+	if !ok {
+
+		// ip address is not assigned yet, choose one from server settings
+
+		unusedIps := utils.Filter(strings.Split(ips, "\n"), func(ip string) bool {
+			// ip with # prefix are currently in use
+			return len(ip) != 0 && ip[0] != '#'
+		})
+		if len(unusedIps) == 0 {
+			return fmt.Errorf("pve: server %d: no unused ips available", serverId)
+		}
+		ip, _ = utils.RandomChoose(unusedIps)
+
 	}
-	ip, _ := utils.RandomChoose(unusedIps)
 
 	slog.Info("pve create", "server id", serverId, "servers", servers, "cpu", cpu, "disk", disk, "memory", memory, "pve base", baseUrl, "node", node, "vm type", vmType, "kvm template vmid", kvmTemplateVmid, "ip", ip)
 
@@ -318,8 +328,9 @@ func (p *PVE) createService(serviceId int32) error {
 		return fmt.Errorf("bad vm_type: %s", vmType)
 	}
 
-	// save server id
+	// save server id and ip address
 	s.Settings["server"] = strconv.Itoa(serverId)
+	s.Settings["ip"] = ip
 	err = database.Q.UpdateServiceSettings(ctx, database.UpdateServiceSettingsParams{
 		ID:       int32(serviceId),
 		Settings: s.Settings,
@@ -337,12 +348,12 @@ func (p *PVE) createService(serviceId int32) error {
 		if p == ip {
 			newIps += "#" + ip + "\n"
 		} else {
-			newIps += ip + "\n"
+			newIps += p + "\n"
 		}
 	}
 	server.Settings["ips"] = newIps
 	err = database.Q.UpdateServerSettings(ctx, database.UpdateServerSettingsParams{
-		ID:       int32(vmid),
+		ID:       int32(serverId),
 		Settings: server.Settings,
 	})
 	if err != nil {
@@ -542,8 +553,9 @@ func (p *PVE) qemuReboot(serviceId int32, lxc bool) error {
 	return nil
 }
 
+// Delete the VM, unassign the server from the service and mark the IP as unused.
 func (p *PVE) qemuDelete(serviceId int32, lxc bool) error {
-	_, serverSettings, err := p.getServiceSettings(serviceId)
+	serviceSettings, serverSettings, err := p.getServiceSettings(serviceId)
 	if err != nil {
 		return fmt.Errorf("pve: poweroff: %w", err)
 	}
@@ -552,6 +564,8 @@ func (p *PVE) qemuDelete(serviceId int32, lxc bool) error {
 	if lxc {
 		vmType = "lxc"
 	}
+
+	// delete vm from pve
 
 	address := serverSettings["address"]
 	port := serverSettings["port"]
@@ -578,6 +592,55 @@ func (p *PVE) qemuDelete(serviceId int32, lxc bool) error {
 		return fmt.Errorf("pve: %w", err)
 	}
 
+	serverIdStr, ok := serviceSettings["server"]
+	if !ok {
+		return fmt.Errorf("pve: delete: server id not found in service settings")
+	}
+	serverId, err := strconv.Atoi(serverIdStr)
+	if err != nil {
+		return fmt.Errorf("pve: delete: bad server id: %s", serverIdStr)
+	}
+
+	// unassign server
+	delete(serviceSettings, "server")
+	err = database.Q.UpdateServiceSettings(context.Background(), database.UpdateServiceSettingsParams{
+		ID:       int32(serviceId),
+		Settings: serviceSettings,
+	})
+	if err != nil {
+		return fmt.Errorf("pve: unassign server id: %w", err)
+	}
+
+	// mark ip as unused
+	ip, ok := serviceSettings["ip"]
+	if !ok {
+		return fmt.Errorf("pve: delete: ip not found in service settings")
+	}
+	ips, ok := serverSettings["ips"]
+	if !ok {
+		return fmt.Errorf("pve: delete: ips not found in server settings")
+	}
+
+	newIps := ""
+	for _, p := range strings.Split(ips, "\n") {
+		if len(p) == 0 {
+			continue
+		}
+		if p == "#"+ip {
+			newIps += ip + "\n"
+		} else {
+			newIps += p + "\n"
+		}
+	}
+	serverSettings["ips"] = newIps
+	err = database.Q.UpdateServerSettings(context.Background(), database.UpdateServerSettingsParams{
+		ID:       int32(serverId),
+		Settings: serverSettings,
+	})
+	if err != nil {
+		return fmt.Errorf("pve: mark ip unused: %w", err)
+	}
+
 	return nil
 }
 
@@ -585,8 +648,8 @@ func (p *PVE) Action(serviceId int32, action string) error {
 	slog.Info("pve action", "service id", serviceId, "action", action)
 
 	serviceSettings, _, err := p.getServiceSettings(serviceId)
-	if err != nil {
-		return fmt.Errorf("pve: get %w", err)
+	if err != nil && !(errors.Is(err, errNoServerAssigned) && action == "create") {
+		return fmt.Errorf("pve: perform action: get service settings: %w", err)
 	}
 
 	vmType := "qemu"
@@ -607,7 +670,8 @@ func (p *PVE) Action(serviceId int32, action string) error {
 		return nil
 	case "terminate":
 		err = p.qemuPoweroff(serviceId, true, vmType == "lxc")
-		if err != nil {
+		if err != nil && !strings.Contains(err.Error(), "not running") {
+			// ignore error caused by VM not running
 			return fmt.Errorf("terminate: force poweroff: %w", err)
 		}
 		return p.qemuDelete(serviceId, vmType == "lxc")

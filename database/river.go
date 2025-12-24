@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
@@ -21,7 +22,8 @@ func InitRiver() {
 		Queues: map[string]river.QueueConfig{
 			river.QueueDefault: {MaxWorkers: 2},
 		},
-		Workers: Workers,
+		Workers:    Workers,
+		JobTimeout: time.Minute * 5,
 	})
 	if err != nil {
 		slog.Error("init river", "err", err)
