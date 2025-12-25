@@ -55,7 +55,7 @@ func sendmail(to, subject, body string) error {
 		return fmt.Errorf("send mail: %w", err)
 	}
 
-	_, err = fmt.Fprintf(w, "Subject: %s\r\nTo: %s\r\nContent-Type: text/html\r\n\r\n%s", subject, to, body)
+	_, err = fmt.Fprintf(w, "From: %s\r\nTo: %s\r\nSubject: %s\r\nContent-Type: text/html\r\n\r\n%s", from, to, subject, body)
 	if err != nil {
 		return fmt.Errorf("send mail: %w", err)
 	}
