@@ -908,8 +908,8 @@ func (q *Queries) FindServiceByUser(ctx context.Context, userID int32) ([]Servic
 
 const findServicesForRenewal = `-- name: FindServicesForRenewal :many
 SELECT id, label, user_id, status, cancellation_reason, billing_cycle, price, extension, settings, expires_at, created_at, cancelled_at FROM services 
-WHERE (status = 'ACTIVE' OR status = 'SUSPENDED') 
-AND expires_at <= (CURRENT_TIMESTAMP + interval '5 days')
+WHERE (status = 'ACTIVE' OR status = 'SUSPENDED' OR status = 'PENDING') 
+AND expires_at <= (CURRENT_TIMESTAMP + interval '7 days')
 AND NOT EXISTS (
     SELECT 1 FROM invoices 
     JOIN invoice_items ON invoices.id = invoice_items.invoice_id 
