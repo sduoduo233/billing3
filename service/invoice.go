@@ -352,7 +352,7 @@ func CloseOverdueInvoices() error {
 // GenerateRenewalInvoices generates renewal invoices for all services that are due for renewal.
 // Due for renewal includes that fowllowing conditions:
 // - service status is ACTIVE or SUSPENDED or PENDING
-// - service expiry date is within 7 days
+// - current time < service expiry date <= current time + 7 days
 // - there is no existing unpaid invoice for the service
 func GenerateRenewalInvoices() error {
 	ctx := context.Background()

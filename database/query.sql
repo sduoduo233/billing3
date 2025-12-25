@@ -224,7 +224,7 @@ SELECT * FROM services WHERE (status = 'SUSPENDED' OR status = 'ACTIVE' OR statu
 -- name: FindServicesForRenewal :many
 SELECT * FROM services 
 WHERE (status = 'ACTIVE' OR status = 'SUSPENDED' OR status = 'PENDING') 
-AND expires_at <= (CURRENT_TIMESTAMP + interval '7 days')
+AND expires_at <= (CURRENT_TIMESTAMP + interval '7 days') AND expires_at > CURRENT_TIMESTAMP
 AND NOT EXISTS (
     SELECT 1 FROM invoices 
     JOIN invoice_items ON invoices.id = invoice_items.invoice_id 
