@@ -52,7 +52,7 @@ func registerStep2(w http.ResponseWriter, r *http.Request) {
 	type reqStruct struct {
 		Token    string `json:"token" validate:"required"`
 		Name     string `json:"name" validate:"required,max=100"`
-		Password string `json:"password" validate:"required,printascii,max=72"`
+		Password string `json:"password" validate:"required,printascii,max=32"`
 	}
 	req, err := decode[reqStruct](r)
 	if err != nil {

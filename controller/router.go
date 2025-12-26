@@ -6,12 +6,15 @@ import (
 	"billing3/service/gateways"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
 )
 
 func Route(r *chi.Mux) {
+	publicDomain = os.Getenv("PUBLIC_DOMAIN")
+
 	r.Use(middlewares.Auth)
 
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
@@ -23,6 +26,8 @@ func Route(r *chi.Mux) {
 		r.Post("/auth/login", login)
 		r.Post("/auth/register", register)
 		r.Post("/auth/register2", registerStep2)
+		r.Post("/auth/reset-password", resetPassword)
+		r.Post("/auth/reset-password2", resetPassword2)
 
 		r.With(middlewares.MustAuth).Get("/auth/me", me)
 		r.With(middlewares.MustAuth).Post("/auth/logout", logout)

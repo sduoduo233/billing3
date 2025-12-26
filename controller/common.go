@@ -5,11 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/jackc/pgx/v5"
 	"log/slog"
 	"net/http"
 	"reflect"
 	"strings"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/go-playground/validator/v10"
 )
@@ -17,6 +18,8 @@ import (
 const PGErrorUniqueViolation = "23505"
 
 const itemPerPage = 20
+
+var publicDomain string
 
 type D map[string]any
 
