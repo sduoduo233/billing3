@@ -54,7 +54,7 @@ func main() {
 	database.Init()
 
 	// gateway
-	err = gateways.InitDatabase()
+	err = gateways.InitGateways()
 	if err != nil {
 		slog.Error("init gateway", "err", err)
 		panic(err)

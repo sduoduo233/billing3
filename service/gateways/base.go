@@ -3,12 +3,15 @@ package gateways
 import (
 	"billing3/database"
 	"context"
+	"log/slog"
+	"os"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/shopspring/decimal"
-	"log/slog"
 )
 
 var Gateways = make(map[string]Gateway)
+var PUBLIC_DOMAIN string
 
 type GatewaySetting struct {
 	DisplayName string   `json:"display_name"` // the name that will be displayed on frontend
@@ -38,8 +41,13 @@ func registerGateway(name string, extension Gateway) {
 	Gateways[name] = extension
 }
 
-func InitDatabase() error {
+func InitGateways() error {
 	ctx := context.Background()
+
+	PUBLIC_DOMAIN = os.Getenv("PUBLIC_DOMAIN")
+	if PUBLIC_DOMAIN == "" {
+		panic("PUBLIC_DOMAIN environment variable is not set")
+	}
 
 	// initialize gateways settings
 	for name := range Gateways {

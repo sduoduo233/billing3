@@ -8,11 +8,14 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
+
+var PUBLIC_DOMAIN string
 
 // SendVerificationEmail sends a verification email, which contains the link
 // to continue registration process
@@ -22,7 +25,11 @@ func SendVerificationEmail(ctx context.Context, emailAddr string) error {
 		"sub": emailAddr,
 	}, time.Minute*30)
 
-	link := "http://localhost:5173/auth/register2?token=" + jwtSign
+	if PUBLIC_DOMAIN == "" {
+		PUBLIC_DOMAIN = os.Getenv("PUBLIC_DOMAIN")
+	}
+
+	link := PUBLIC_DOMAIN + "/auth/register2?token=" + jwtSign
 	subject := "Verify email"
 	body := fmt.Sprintf("To continue creating your account, please confirm your email address <a href=\"%s\">%s</a>", link, link)
 

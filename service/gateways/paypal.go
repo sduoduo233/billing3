@@ -87,8 +87,8 @@ func (p *Paypal) Pay(invoice *database.Invoice, user *database.User, total decim
 		},
 		Intent: "CAPTURE",
 		ApplicationContext: applicationContextStruct{
-			ReturnUrl:          "http://localhost:5173/api/gateway/paypal/return", // TODO
-			CancelUrl:          fmt.Sprintf("http://localhost:5173/dashboard/invoice/%d", invoice.ID),
+			ReturnUrl:          PUBLIC_DOMAIN + "/api/gateway/paypal/return", // TODO
+			CancelUrl:          fmt.Sprintf("%s/dashboard/invoice/%d", PUBLIC_DOMAIN, invoice.ID),
 			ShippingPreference: "NO_SHIPPING",
 			UserAction:         "PAY_NOW",
 		},
