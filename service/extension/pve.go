@@ -15,7 +15,6 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -70,6 +69,7 @@ type pveVmInfo struct {
 	IPv4Gateway string
 	Username    string
 	Password    string
+	OS          [][]string
 }
 
 // pveAuth returns CSRFPreventionToken and ticket
@@ -972,7 +972,7 @@ func (p *PVE) ClientPage(w http.ResponseWriter, r *http.Request, serviceId int32
 
 func (p *PVE) AdminPage(w http.ResponseWriter, r *http.Request, serviceId int32) error {
 
-	serviceSettings, _, err := p.getServiceSettings(serviceId)
+	serviceSettings, serverSettings, err := p.getServiceSettings(serviceId)
 	if err != nil {
 		if errors.Is(err, errNoServerAssigned) {
 			io.WriteString(w, "<span style=\"font-family: sans-serif\">This service is not created</span>")
@@ -980,6 +980,26 @@ func (p *PVE) AdminPage(w http.ResponseWriter, r *http.Request, serviceId int32)
 		}
 		w.WriteHeader(http.StatusInternalServerError)
 		return err
+	}
+
+	vmType := serviceSettings["vm_type"]
+	if vmType == "kvm" {
+		vmType = "qemu"
+	}
+
+	// find the list of available operating systems
+
+	templateListKey := "lxc_template_list"
+	templateKey := "lxc_template"
+	if vmType == "qemu" {
+		templateListKey = "kvm_template_list"
+		templateKey = "kvm_template_vmid"
+	}
+
+	templateListString, ok := serviceSettings[templateListKey]
+	if !ok {
+		w.WriteHeader(http.StatusInternalServerError)
+		return fmt.Errorf("%s is not set in service settings", templateListKey)
 	}
 
 	if r.Method == "POST" {
@@ -999,24 +1019,38 @@ func (p *PVE) AdminPage(w http.ResponseWriter, r *http.Request, serviceId int32)
 			return nil
 		}
 
-		if form.Action == "reinstall" {
+		switch form.Action {
+		case "reinstall":
 
 			// reinstall
 
-			lxcTempalteList, ok := serviceSettings["lxc_template_list"]
-			if !ok {
-				w.WriteHeader(http.StatusInternalServerError)
-				return fmt.Errorf("lxc_template_list is not set in service settings")
-			}
-			validTemplates := strings.Split(lxcTempalteList, "\n")
+			selectedOsValue := ""
 
-			if !slices.Contains(validTemplates, form.OS) {
-				w.WriteHeader(http.StatusBadRequest)
+			// validate that the user submitted os in the the list
+
+			for line := range strings.SplitSeq(templateListString, "\n") {
+				// format: "Display name|value(vmid or lxc template)"
+				// lxc example: "Ubuntu 22.04 LTS|local:vztmpl/ubuntu-22.04-standard_22.04-1_amd64.tar.gz"
+				// kvm example: "Ubuntu 22.04 LTS|100"
+				parts := strings.SplitN(line, "|", 2)
+				if len(parts) != 2 {
+					continue
+				}
+				value := strings.TrimSpace(parts[1])
+				if form.OS == value {
+					selectedOsValue = value
+					break
+				}
+			}
+
+			if selectedOsValue == "" {
 				io.WriteString(w, "{\"error\": \"The selected OS is unavailable\"}")
 				return nil
 			}
 
-			serviceSettings["lxc_template"] = form.OS
+			// update service settings
+
+			serviceSettings[templateKey] = selectedOsValue
 			err = database.Q.UpdateServiceSettings(r.Context(), database.UpdateServiceSettingsParams{
 				ID:       serviceId,
 				Settings: serviceSettings,
@@ -1026,7 +1060,9 @@ func (p *PVE) AdminPage(w http.ResponseWriter, r *http.Request, serviceId int32)
 				return err
 			}
 
-			slog.Info("reinstall request", "service id", serviceId, "os", form.OS)
+			slog.Info("reinstall request lxc", "service id", serviceId, "os", selectedOsValue)
+
+			// schedule reinstall action
 
 			err := DoActionAsync(r.Context(), "PVE", serviceId, "reinstall", "")
 			if err != nil {
@@ -1037,25 +1073,13 @@ func (p *PVE) AdminPage(w http.ResponseWriter, r *http.Request, serviceId int32)
 			io.WriteString(w, "{\"ok\": true}")
 			return nil
 
-		} else if form.Action == "vnc" {
+		case "vnc":
 
 			slog.Info("vnc request", "service id", serviceId)
 
 			// get pve websocket url
 
 			slog.Info("vnc websocket", "service id", serviceId)
-
-			serviceSettings, serverSettings, err := p.getServiceSettings(int32(serviceId))
-			if err != nil {
-				w.WriteHeader(http.StatusInternalServerError)
-				slog.Error("vnc websocket: get service settings", "err", err)
-				return nil
-			}
-
-			vmType := serviceSettings["vm_type"]
-			if vmType == "kvm" {
-				vmType = "qemu"
-			}
 
 			address := serverSettings["address"]
 			port := serverSettings["port"]
@@ -1103,10 +1127,23 @@ func (p *PVE) AdminPage(w http.ResponseWriter, r *http.Request, serviceId int32)
 			w.Write(respBytes)
 			return nil
 
-		}
+		default:
 
-		w.WriteHeader(http.StatusBadRequest)
-		return nil
+			w.WriteHeader(http.StatusBadRequest)
+			return nil
+
+		}
+	}
+
+	operatingSystems := make([][]string, 0)
+	for line := range strings.SplitSeq(templateListString, "\n") {
+		parts := strings.SplitN(line, "|", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		displayName := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+		operatingSystems = append(operatingSystems, []string{displayName, value})
 	}
 
 	info, err := p.getQemuVmInfo(serviceId)
@@ -1118,6 +1155,8 @@ func (p *PVE) AdminPage(w http.ResponseWriter, r *http.Request, serviceId int32)
 		io.WriteString(w, "<span style=\"font-family: sans-serif\">Something went wrong. Please check server log.</span>")
 		return err
 	}
+
+	info.OS = operatingSystems
 
 	err = p.infoPage.Execute(w, info)
 	if err != nil {
@@ -1156,9 +1195,11 @@ func (p *PVE) ProductSettings(inputs map[string]string) ([]ProductSetting, error
 	switch vmType {
 	case "kvm":
 		s = append(s, ProductSetting{Name: "kvm_template_vmid", DisplayName: "KVM Template VMID", Type: "string", Regex: "^\\d+$"})
+		s = append(s, ProductSetting{Name: "kvm_template_list", Description: "List of KVM template VM that the user can choose to reinstall from. One per line, in the form of [display name]|[template vm id]. New VMs are created by cloning the template VM selected by the client.", Placeholder: "Debian 13|100\nDebian 12|101\nAlmaLinux 10|102...", DisplayName: "List of KVM templates", Type: "text", Regex: "."})
+
 	case "lxc":
 		s = append(s, ProductSetting{Name: "lxc_template", Placeholder: "local:vztmpl/debian-13-standard_13.1-2_amd64.tar.zst", DisplayName: "LXC Template", Type: "string", Regex: "^.+$"})
-		s = append(s, ProductSetting{Name: "lxc_template_list", Description: "List of LXC templates that the user can choose to reinstlal from", Placeholder: "local:vztmpl/debian-13-standard_13.1-2_amd64.tar.zst\nlocal:vztmpl/debian-12-standard_12.12-1_amd64.tar.zst\nlocal:vztmpl/almalinux-10-default_20250930_amd64.tar.xz\n...", DisplayName: "List of LXC templates", Type: "text", Regex: "."})
+		s = append(s, ProductSetting{Name: "lxc_template_list", Description: "List of LXC templates that the user can choose to reinstlal from. One per line, in the form of [display name]|[template location]", Placeholder: "Debian 13|local:vztmpl/debian-13-standard_13.1-2_amd64.tar.zst\nDebian 12|local:vztmpl/debian-12-standard_12.12-1_amd64.tar.zst\nAlmaLinux 10|local:vztmpl/almalinux-10-default_20250930_amd64.tar.xz\n...", DisplayName: "List of LXC templates", Type: "text", Regex: "."})
 	}
 
 	return s, nil

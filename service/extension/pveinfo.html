@@ -72,10 +72,9 @@
         <div class="input-group mb-3">
             <select class="form-select" id="os-select">
                 <option selected></option>
-                <option value="local:vztmpl/debian-13-standard_13.1-2_amd64.tar.zst">Debian 13</option>
-                <option value="local:vztmpl/debian-12-standard_12.12-1_amd64.tar.zst">Debian 12</option>
-                <option value="local:vztmpl/almalinux-10-default_20250930_amd64.tar.xz">AlmaLinux 10</option>
-                <option value="local:vztmpl/ubuntu-24.04-standard_24.04-2_amd64.tar.zst">Ubuntu 24.04</option>
+                {{ range .OS }}
+                <option value="{{ index . 1 }}">{{ index . 0 }}</option>
+                {{ end }}
             </select>
             <button class="btn btn-primary" id="os-btn" type="button">Reinstall</button>
         </div>
