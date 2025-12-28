@@ -668,7 +668,6 @@ func (p *PVE) qemuDelete(serviceId int32, lxc bool) error {
 }
 
 func (p *PVE) Action(serviceId int32, action string) error {
-	slog.Info("pve action", "service id", serviceId, "action", action)
 
 	serviceSettings, _, err := p.getServiceSettings(serviceId)
 	if err != nil && !(errors.Is(err, errNoServerAssigned) && action == "create") {
@@ -679,6 +678,8 @@ func (p *PVE) Action(serviceId int32, action string) error {
 	if _, ok := serviceSettings["vm_type"]; ok && vmType == "lxc" {
 		vmType = "lxc"
 	}
+
+	slog.Info("pve action", "service id", serviceId, "action", action, "vm type", vmType)
 
 	switch action {
 	case "reinstall":
