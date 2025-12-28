@@ -17,7 +17,7 @@ services:
       - /srv/billing3db:/var/lib/postgresql
 
   backend:
-    image: ghcr.io/billing3dev/billing3:master
+    image: ghcr.io/billing3dev/billing3:latest
     depends_on:
       - db
     environment:
@@ -34,7 +34,7 @@ services:
 
 
   frontend:
-    image: ghcr.io/billing3dev/billing3-frontend:master
+    image: ghcr.io/billing3dev/billing3-frontend:latest
     depends_on:
       - backend
     ports:
