@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"log/slog"
+	"mime/quotedprintable"
 	"net"
 	"os"
 
@@ -55,9 +56,34 @@ func sendmail(to, subject, body string) error {
 		return fmt.Errorf("send mail: %w", err)
 	}
 
-	_, err = fmt.Fprintf(w, "From: %s\r\nTo: %s\r\nSubject: %s\r\nContent-Type: text/html\r\n\r\n%s", from, to, subject, body)
+	_, err = fmt.Fprintf(w, "From: %s\r\nTo: %s\r\nSubject: %s\r\nContent-Type: text/html; charset=utf-8\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\n", from, to, subject)
 	if err != nil {
 		return fmt.Errorf("send mail: %w", err)
+	}
+
+	qw := quotedprintable.NewWriter(w)
+
+	emailTemplate := `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body>
+    %s
+</body>
+</html>
+	`
+
+	_, err = fmt.Fprintf(qw, emailTemplate, body)
+	if err != nil {
+		return fmt.Errorf("send mail: write quoted-printable: %w", err)
+	}
+
+	err = qw.Close()
+	if err != nil {
+		return fmt.Errorf("send mail: close quoted-printable writer: %w", err)
 	}
 
 	err = w.Close()

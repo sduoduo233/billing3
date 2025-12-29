@@ -31,7 +31,9 @@ func SendVerificationEmail(ctx context.Context, emailAddr string) error {
 
 	link := PUBLIC_DOMAIN + "/auth/register2?token=" + jwtSign
 	subject := "Verify email"
-	body := fmt.Sprintf("To continue creating your account, please confirm your email address <a href=\"%s\">%s</a>", link, link)
+	body := fmt.Sprintf(`
+	<p>Click the following link to continue registration:<br><br><a href=\"%s\">%s</a></p>
+	`, link, link)
 
 	err := email.SendMailAsync(ctx, emailAddr, subject, body)
 	if err != nil {
